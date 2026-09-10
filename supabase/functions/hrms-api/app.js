@@ -99,6 +99,7 @@ const ROLE_ACCESS = {
 };
 async function hasAccess(user, module, action) {
   if (user.role === 'admin') return true;
+  if (module === 'attendance' && ['view','create'].includes(action)) return user.role !== 'ceo';
   const explicit = (user.access || []).find(item => item.module === module);
   if (explicit) return Boolean(explicit[`can_${action}`]);
   return Boolean((ROLE_ACCESS[user.role] || {})[action]?.includes(module));
