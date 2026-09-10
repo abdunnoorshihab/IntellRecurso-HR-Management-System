@@ -54,6 +54,9 @@
       };
     },
     async init() {
+      document.querySelectorAll('.brand').forEach(brand => {
+        brand.innerHTML = '<img class="brand-logo" src="assets/logo.svg" alt="IntellRecurso"><span class="brand-name">Intell<span>Recurso</span></span><small>HR Management System</small>';
+      });
       if (location.pathname.endsWith('login.html')) return initLogin();
       try { HRMS.user = (await HRMS.api('/api/auth/me')).user; } catch { return; }
       document.querySelectorAll('.sidebar a').forEach(a=>{

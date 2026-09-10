@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 150" role="img" aria-labelledby="title desc">
+  <title id="title">IntellRecurso</title>
+  <desc id="desc">IntellRecurso purple TR logo</desc>
+  <defs>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f00d8"/>
+      <stop offset=".55" stop-color="#8d3dff"/>
+      <stop offset="1" stop-color="#c069ff"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#violet)" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="10" d="M38 38h116M96 38v76m-25 0h50M38 38c-27 0-27 44 0 44h47"/>
+    <path stroke-width="12" d="M165 38v76m0-76h50c37 0 37 44 0 44h-50m40 0 45 32"/>
+    <path stroke-width="9" d="M165 82h42"/>
+  </g>
+  <text x="210" y="139" text-anchor="middle" fill="#d6a6ff" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="8">INTELLRECURSO</text>
+</svg>
