@@ -233,6 +233,7 @@
   function createFields(c, emps, depts) {
     let fields = fieldDefs(c, emps, depts);
     if (page === 'tasks') fields = fields.filter(f => !['status','progress'].includes(f.name));
+    if (page === 'tasks' && HRMS.user.role === 'employee') fields = fields.filter(f => f.name !== 'assigned_to');
     if (page === 'attendance' && HRMS.user.role === 'employee') fields = fields.filter(f => !['status','late_minutes','overtime_minutes','correction_status'].includes(f.name));
     return fields;
   }
@@ -250,6 +251,7 @@
     const defaults = {};
     if (HRMS.user.role === 'employee' && HRMS.user.employee_id) {
       if (fields.some(f => f.name === 'employee_id')) defaults.employee_id = HRMS.user.employee_id;
+      if (page === 'tasks') defaults.assigned_to = HRMS.user.employee_id;
     }
     HRMS.modal(`Add ${c.title}`, fields, defaults, async obj => {
       if (page === 'salary') obj.net_salary = Number(obj.net_salary || 0) || Number(obj.basic_salary || 0) + Number(obj.allowance || 0) - Number(obj.deduction || 0);
