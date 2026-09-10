@@ -285,8 +285,9 @@ app.get('/api/attendance', requireAuth, allowAccess('attendance', 'view'), async
     const items=await db.all(`SELECT a.*,e.name employee_name FROM attendance a JOIN employees e ON e.id=a.employee_id ${clauses.length?'WHERE '+clauses.join(' AND '):''} ORDER BY a.date DESC,e.name`,...args);res.json({items});
   }catch(e){sendDbError(res,e);}
 });
-app.post('/api/attendance/mark', requireAuth, allowAccess('attendance', 'create', 'admin','hr','manager'), async (req,res)=>{
+app.post('/api/attendance/mark', requireAuth, async (req,res)=>{
   try {
+    if (String(req.user.role || '').toLowerCase() === 'ceo') return res.status(403).json({error:'CEO accounts do not mark attendance'});
     const employeeId=Number(req.user.employee_id||0),status=cleanText(req.body.status,'');
     if(!employeeId)return res.status(400).json({error:'Your account is not linked to an employee record'});
     if(!['present','absent'].includes(status))return res.status(400).json({error:'Attendance status must be present or absent'});
