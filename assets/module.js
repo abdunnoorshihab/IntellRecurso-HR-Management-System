@@ -134,7 +134,7 @@
   }
 
   function cards(arr) {
-    return arr.map(([a,b,c]) => `<article><span>${HRMS.esc(a)}</span><strong>${HRMS.esc(b)}</strong><small>${HRMS.esc(c)}</small></article>`).join('');
+    return arr.map(([a,b,c,color]) => `<article${color ? ` style="border-top:3px solid ${color}"` : ''}><span>${HRMS.esc(a)}</span><strong>${HRMS.esc(b)}</strong><small>${HRMS.esc(c)}</small></article>`).join('');
   }
 
   function formatCell(k, v) {
@@ -262,11 +262,17 @@
   async function dashboard() {
     const d = await HRMS.api('/api/dashboard');
     const notifications = await HRMS.api('/api/notifications');
+    const displayName = HRMS.user.name || HRMS.user.email || 'colleague';
+    const dayLabel = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date());
+    document.getElementById('pageTitle').textContent = `Good morning, ${displayName}`;
+    document.getElementById('pageSubtitle').textContent = `${dayLabel} · ${HRMS.user.role.toUpperCase()} office brief`;
+    const taskStats = d.taskStats || {};
+    const taskProgress = taskStats.total ? `${Math.round(taskStats.completed / taskStats.total * 100)}%` : '—';
     document.getElementById('summaryCards').innerHTML = cards([
-      ['Today', `${d.present} / ${d.totalEmployees}`, 'Employees present'],
-      ['Open HR Actions', d.openActions, 'Pending approvals & follow-ups'],
-      ['Tasks Due Soon', d.dueSoon, 'Due within 48 hours'],
-      ['CEO Attention', d.ceoAttention, 'Items needing review']
+      ['Attendance', `${d.present} / ${d.totalEmployees}`, 'Present today', '#06b6d4'],
+      ['Open Actions', d.openActions, 'Requests & follow-ups', '#f97316'],
+      ['Task Progress', taskProgress, `${taskStats.completed || 0} of ${taskStats.total || 0} completed`, '#8b5cf6'],
+      ['Upcoming Events', (d.events || []).length, 'On the office calendar', '#22c55e']
     ]);
     const quick = [];
     if (HRMS.can('attendance','create')) quick.push('<a href="attendance.html">Mark Attendance</a>');
@@ -278,7 +284,7 @@
     const actionPanel = document.querySelector('.actions');
     if (actionPanel) actionPanel.innerHTML = quick.join('') || '<span class="muted">No actions available.</span>';
     const notices = notifications.items.slice(0,5).map(item => `<div class="notification ${item.is_read ? '' : 'unread'}" data-notification="${item.id}"><b>${HRMS.esc(item.title)}</b><span>${HRMS.esc(item.message)}</span></div>`).join('') || '<div class="muted">No notifications.</div>';
-    document.getElementById('dashboardControl').innerHTML = `<div>Attendance exceptions <b>${d.attendanceExceptions}</b></div><div>Leave requests pending <b>${d.pendingLeave}</b></div><div>Requisitions awaiting review <b>${d.pendingReq}</b></div><div>Fund settlements open <b>${d.openFunds}</b></div><div class="quick-actions">${quick.join('')}</div><h3>Notifications (${notifications.unread} unread)</h3><div class="notifications">${notices}</div>`;
+    document.getElementById('dashboardControl').innerHTML = `<div><span>Attendance exceptions</span><b>${d.attendanceExceptions}</b></div><div><span>Leave requests pending</span><b>${d.pendingLeave}</b></div><div><span>Requisitions awaiting review</span><b>${d.pendingReq}</b></div><div><span>Fund settlements open</span><b>${d.openFunds}</b></div><div><span>Tasks in progress</span><b>${taskStats.inProgress || 0}</b></div><div class="quick-actions">${quick.join('')}</div><h3>Notifications (${notifications.unread} unread)</h3><div class="notifications">${notices}</div>`;
     const trend = d.attendanceTrend || [];
     const maxTotal = Math.max(1, ...trend.map(item => item.total));
     const chart = trend.map(item => { const height=Math.max(8,Math.round(item.present / maxTotal * 100)); return `<div style="display:flex;flex:1;min-width:28px;height:150px;align-items:flex-end;justify-content:center;position:relative" title="${item.date}: ${item.present}/${item.total} present"><i style="display:block;width:70%;height:${height}%;background:linear-gradient(180deg,#06b6d4,#2563eb);border-radius:7px 7px 2px 2px;min-height:12px"></i><small style="position:absolute;bottom:-22px;font-size:10px;color:#64748b">${item.date.slice(5)}</small></div>`; }).join('');
@@ -287,7 +293,7 @@
     const lower = document.createElement('section');
     lower.className = 'grid two';
     lower.style.marginTop = '18px';
-    lower.innerHTML = `<div class="panel" style="background:linear-gradient(135deg,#eff6ff,#ecfeff)"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Attendance Trend</h2><small>Present records over the last 7 days</small></div><a href="attendance.html" style="background:#2563eb;color:white;padding:8px 12px;border-radius:7px;text-decoration:none;font-size:12px">Attendance</a></div><div style="display:flex;gap:10px;margin:26px 8px 24px;align-items:flex-end;border-bottom:1px solid #cbd5e1">${chart}</div></div><div class="panel" style="background:linear-gradient(135deg,#fff7ed,#fefce8)"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Upcoming Events</h2><small>Company calendar and team activities</small></div>${eventAction}</div><div style="display:grid;gap:9px;margin-top:14px">${events}</div></div>`;
+    lower.innerHTML = `<div class="panel" style="background:linear-gradient(135deg,#eff6ff,#ecfeff);border-top:3px solid #06b6d4"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Attendance Trend</h2><small>Present records over the last 7 days</small></div><a href="attendance.html" style="background:#2563eb;color:white;padding:8px 12px;border-radius:7px;text-decoration:none;font-size:12px">Attendance</a></div><div style="display:flex;gap:10px;margin:26px 8px 24px;align-items:flex-end;border-bottom:1px solid #cbd5e1">${chart}</div></div><div class="panel" style="background:linear-gradient(135deg,#fff7ed,#fefce8);border-top:3px solid #f97316"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Upcoming Events</h2><small>Company calendar and team activities</small></div>${eventAction}</div><div style="display:grid;gap:9px;margin-top:14px">${events}</div></div>`;
     document.querySelector('main').appendChild(lower);
     document.getElementById('addEventBtn')?.addEventListener('click', () => HRMS.modal('Add Upcoming Event', [{name:'title',label:'Event Title',required:true},{name:'event_date',label:'Date',type:'date',required:true},{name:'event_time',label:'Time',type:'time'},{name:'location',label:'Location'},{name:'description',label:'Description',type:'textarea'}], {}, async obj => { await HRMS.api('/api/events',{method:'POST',body:JSON.stringify(obj)}); lower.remove(); await dashboard(); }));
     document.querySelectorAll('[data-notification]').forEach(item => item.onclick = async () => { await HRMS.api(`/api/notifications/${item.dataset.notification}/read`, {method:'PATCH', body:'{}'}); item.classList.remove('unread'); });
