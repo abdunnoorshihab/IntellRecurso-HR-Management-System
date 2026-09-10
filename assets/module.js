@@ -363,7 +363,8 @@
   }
 
   async function admin() {
-    if (!['admin','hr'].includes(HRMS.user.role)) {
+    const adminRoles = ['admin','hr','ceo','chairman'];
+    if (!adminRoles.includes(HRMS.user.role)) {
       document.getElementById('dataPanel').innerHTML = '<div class="empty">Administration access is restricted.</div>';
       return;
     }
@@ -372,8 +373,8 @@
       ['Users', users.items.length, 'System accounts'], ['Settings', settings.items.length, 'Configuration values'], ['Audit Events', audit.items.length, 'Recent actions'], ['Your Role', HRMS.user.role.toUpperCase(), 'Current access']
     ]);
     document.getElementById('dataPanel').innerHTML = `
-      <div class="admin-section"><div class="panel-head"><h2>User Accounts</h2>${HRMS.user.role==='admin'?'<button id="newUser">+ Add User</button>':''}</div>
-      <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>${users.items.map(u => `<tr><td>${HRMS.esc(u.employee_name || '—')}</td><td>${HRMS.esc(u.email)}</td><td>${formatCell('status',u.role)}</td><td>${formatCell('status',u.status)}</td><td>${HRMS.user.role==='admin'?`<button class="mini secondary" data-edit-user="${u.id}">Edit</button> <button class="mini secondary" data-access-user="${u.id}">Access</button>`:'—'}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="admin-section"><div class="panel-head"><h2>User Accounts</h2>${adminRoles.includes(HRMS.user.role)?'<button id="newUser">+ Add User</button>':''}</div>
+      <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>${users.items.map(u => `<tr><td>${HRMS.esc(u.employee_name || '—')}</td><td>${HRMS.esc(u.email)}</td><td>${formatCell('status',u.role)}</td><td>${formatCell('status',u.status)}</td><td>${adminRoles.includes(HRMS.user.role)?`<button class="mini secondary" data-edit-user="${u.id}">Edit</button> <button class="mini secondary" data-access-user="${u.id}">Access</button>`:'—'}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="admin-section"><h2>System Settings</h2><div class="settings-grid">${settings.items.map(s => `<label>${HRMS.esc(s.key.replaceAll('_',' '))}<div><input data-setting="${HRMS.esc(s.key)}" value="${HRMS.esc(s.value)}"><button class="mini" data-save-setting="${HRMS.esc(s.key)}">Save</button></div></label>`).join('')}</div></div>
       <div class="admin-section"><h2>Recent Audit Log</h2><div class="audit-list">${audit.items.slice(0,30).map(a => `<div><b>${HRMS.esc(a.action)} ${HRMS.esc(a.entity)}</b><span>${HRMS.esc(a.user_email || 'system')}</span><small>${HRMS.esc(a.created_at)}</small></div>`).join('')}</div></div>`;
 
@@ -384,7 +385,7 @@
       HRMS.toast('Setting saved');
     });
 
-    if (HRMS.user.role === 'admin') {
+    if (adminRoles.includes(HRMS.user.role)) {
       const emps = await getEmployees();
       const roleOptions = ['admin','hr','chairman','ceo','official','manager','employee'].map(v => ({value:v,label:v}));
       const accessOptions = [{value:'',label:'No access'},{value:'view|self',label:'View - Self'},{value:'view|team',label:'View - Team'},{value:'view|all',label:'View - All'},{value:'view,create,edit|self',label:'View / Create / Edit - Self'},{value:'view,create,edit|team',label:'View / Create / Edit - Team'},{value:'view,create,edit,approve|all',label:'View / Create / Edit / Approve - All'},{value:'view,create,edit,delete,approve|all',label:'Full access - All'}];

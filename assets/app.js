@@ -4,7 +4,7 @@
     can(module, action='view') {
       if (!this.user) return false;
       if (this.user.role === 'admin') return true;
-      if (module === 'administration' && this.user.role === 'hr') return action === 'view';
+      if (module === 'administration' && ['hr','ceo','chairman'].includes(this.user.role)) return true;
       if (module === 'attendance' && ['view','create'].includes(action)) return this.user.role !== 'ceo';
       const explicit = (this.user.access || []).find(item => item.module === module);
       if (explicit) return Boolean(explicit[`can_${action}`]);
