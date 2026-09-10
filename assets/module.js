@@ -104,7 +104,12 @@
   }
 
   async function renderModule(c) {
-    const [data, emps, depts] = await Promise.all([HRMS.api(c.endpoint), getEmployees(), getDepartments()]);
+    const lookups = await Promise.all([
+      HRMS.can('employees', 'view') ? getEmployees().catch(() => []) : Promise.resolve([]),
+      HRMS.can('organization', 'view') ? getDepartments().catch(() => []) : Promise.resolve([])
+    ]);
+    const data = await HRMS.api(c.endpoint);
+    const [emps, depts] = lookups;
     const items = data.items || [];
     const pending = items.filter(i => ['pending','open','draft'].includes(String(i.status || i.correction_status))).length;
     const done = items.filter(i => ['approved','completed','settled','issued','finalized'].includes(String(i.status))).length;
