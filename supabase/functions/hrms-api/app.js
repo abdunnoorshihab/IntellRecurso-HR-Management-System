@@ -62,6 +62,12 @@ async function audit(userId, action, entity, entityId, details = null) {
     await db.run('INSERT INTO audit_logs(user_id,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?)', userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null, now());
   } catch (e) { console.error('Audit write failed', e); }
 }
+async function notifyRoles(roles, title, message, entity, entityId) {
+  try {
+    const users = await db.all(`SELECT id FROM users WHERE status='active' AND role IN (${placeholders(roles)})`, ...roles);
+    for (const user of users) await db.run('INSERT INTO notifications(user_id,title,message,entity,entity_id,created_at) VALUES(?,?,?,?,?,?)', user.id, title, message, entity, entityId == null ? null : String(entityId), now());
+  } catch (e) { console.error('Notification write failed', e); }
+}
 async function sessionUser(req) {
   const token = cookies(req).ir_hrms_session;
   if (!token) return null;
@@ -85,13 +91,8 @@ function allow(...roles) {
 const ROLE_ACCESS = {
   admin: { view: ACCESS_MODULES, create: ACCESS_MODULES, edit: ACCESS_MODULES, delete: ACCESS_MODULES, approve: ACCESS_MODULES },
   hr: { view: ACCESS_MODULES, create: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters','reports'], edit: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'], approve: ['leave','requisitions','conveyance','funds'], delete: [] },
-    chairman: { view: ['dashboard','attendance','tasks','events','reports'], create: ['attendance','tasks'], edit: ['attendance','tasks'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
-    ceo: { view: ['dashboard','tasks','events','leave','performance','reports','requisitions','conveyance','funds'], create: ['tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','performance','requisitions','conveyance','funds'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
-    try {
-      const users = await db.all(`SELECT id FROM users WHERE status='active' AND role IN (${placeholders(roles)})`, ...roles);
-      for (const user of users) await db.run('INSERT INTO notifications(user_id,title,message,entity,entity_id,created_at) VALUES(?,?,?,?,?,?)', user.id, title, message, entity, entityId == null ? null : String(entityId), now());
-    } catch (e) { console.error('Notification write failed', e); }
-  }
+  chairman: { view: ['dashboard','attendance','tasks','events','reports'], create: ['attendance','tasks'], edit: ['attendance','tasks'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
+  ceo: { view: ['dashboard','tasks','events','leave','performance','reports','requisitions','conveyance','funds'], create: ['tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','performance','requisitions','conveyance','funds'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
   official: { view: ['dashboard','attendance'], create: ['attendance'], edit: ['attendance'], delete: [], approve: [] },
   manager: { view: ['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'], create: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
   employee: { view: ['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'], create: ['attendance','tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','requisitions','conveyance','funds'], delete: [], approve: [] }
