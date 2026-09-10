@@ -276,8 +276,9 @@ app.get('/api/organization', requireAuth, allowAccess('organization', 'view'), a
   try{const items=await db.all("SELECT e.id,e.name,e.designation,e.reports_to,m.name manager_name,d.name department FROM employees e LEFT JOIN employees m ON m.id=e.reports_to LEFT JOIN departments d ON d.id=e.department_id WHERE e.employment_status='active' ORDER BY e.reports_to NULLS FIRST,e.name");res.json({items});}catch(e){sendDbError(res,e);}
 });
 
-app.get('/api/attendance', requireAuth, allowAccess('attendance', 'view'), async (req,res)=>{
+app.get('/api/attendance', requireAuth, async (req,res)=>{
   try{
+    if (String(req.user.role || '').toLowerCase() === 'ceo') return res.status(403).json({error:'CEO accounts do not access attendance'});
     const clauses=[],args=[],ids=await teamIds(req.user);
     if(ids!==null){clauses.push(`a.employee_id IN (${placeholders(ids)})`);args.push(...ids);}
     if(req.query.date){clauses.push('a.date=?');args.push(req.query.date);}
