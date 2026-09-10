@@ -90,7 +90,7 @@ const ROLE_ACCESS = {
     } catch (e) { console.error('Notification write failed', e); }
   }
   official: { view: ['dashboard'], create: [], edit: [], delete: [], approve: [] },
-  manager: { view: ['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'], create: ['tasks','events','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
+  manager: { view: ['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'], create: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
   employee: { view: ['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'], create: ['attendance','tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','requisitions','conveyance','funds'], delete: [], approve: [] }
 };
 async function hasAccess(user, module, action) {
