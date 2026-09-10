@@ -204,7 +204,9 @@ app.get('/api/dashboard', requireAuth, allowAccess('dashboard', 'view'), async (
     const taskStats = await db.get(`SELECT COUNT(*)::int total,COUNT(*) FILTER (WHERE status='completed')::int completed,COUNT(*) FILTER (WHERE status='in_progress')::int in_progress FROM tasks WHERE 1=1${taskScope}`,...empArgs);
     const attendanceTrend=[];
     for(let offset=6;offset>=0;offset--){const date=new Date(Date.now()-offset*86400000).toISOString().slice(0,10);const row=await db.get(`SELECT COUNT(*)::int total,COUNT(*) FILTER (WHERE status IN ('present','late'))::int present FROM attendance WHERE date=?${recordScope}`,date,...empArgs);attendanceTrend.push({date,total:Number(row?.total||0),present:Number(row?.present||0)});}
-    const events=await db.all("SELECT id,title,event_date,event_time,location,description FROM events WHERE event_date>=? ORDER BY event_date,event_time NULLS LAST LIMIT 8",today);
+    let events=[];
+    try { events=await db.all("SELECT id,title,event_date,event_time,location,description FROM events WHERE event_date>=? ORDER BY event_date,event_time NULLS LAST LIMIT 8",today); }
+    catch (e) { console.error('Events table is not available yet', e); }
     const openActions = pendingLeave + pendingReq + openFunds + attendanceExceptions;
     res.json({ today,totalEmployees,present,attendanceExceptions,pendingLeave,pendingReq,openFunds,dueSoon,openActions,ceoAttention:urgent+pendingLeave,taskStats:{total:Number(taskStats?.total||0),completed:Number(taskStats?.completed||0),inProgress:Number(taskStats?.in_progress||0)},attendanceTrend,events });
   } catch (e) { sendDbError(res,e); }

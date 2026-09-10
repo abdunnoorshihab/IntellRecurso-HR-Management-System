@@ -261,7 +261,7 @@
 
   async function dashboard() {
     const d = await HRMS.api('/api/dashboard');
-    const notifications = await HRMS.api('/api/notifications');
+    const notifications = await HRMS.api('/api/notifications').catch(() => ({items:[],unread:0}));
     const displayName = HRMS.user.name || HRMS.user.email || 'colleague';
     const dayLabel = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date());
     document.getElementById('pageTitle').textContent = `Good morning, ${displayName}`;
