@@ -273,6 +273,7 @@
   async function dashboard() {
     const d = await HRMS.api('/api/dashboard');
     const notifications = await HRMS.api('/api/notifications').catch(() => ({items:[],unread:0}));
+    const dashboardTasks = await HRMS.api('/api/dashboard/tasks').catch(() => ({items:[]}));
     const displayName = HRMS.user.name || HRMS.user.email || 'colleague';
     const dayLabel = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date());
     document.getElementById('pageTitle').textContent = `Good morning, ${displayName}`;
@@ -296,6 +297,17 @@
     if (actionPanel) actionPanel.innerHTML = quick.join('') || '<span class="muted">No actions available.</span>';
     const notices = notifications.items.slice(0,5).map(item => `<div class="notification ${item.is_read ? '' : 'unread'}" data-notification="${item.id}"><b>${HRMS.esc(item.title)}</b><span>${HRMS.esc(item.message)}</span></div>`).join('') || '<div class="muted">No notifications.</div>';
     document.getElementById('dashboardControl').innerHTML = `<div><span>Attendance exceptions</span><b>${d.attendanceExceptions}</b></div><div><span>Leave requests pending</span><b>${d.pendingLeave}</b></div><div><span>Requisitions awaiting review</span><b>${d.pendingReq}</b></div><div><span>Fund settlements open</span><b>${d.openFunds}</b></div><div><span>Tasks in progress</span><b>${taskStats.inProgress || 0}</b></div><div class="quick-actions">${quick.join('')}</div><h3>Notifications (${notifications.unread} unread)</h3><div class="notifications">${notices}</div>`;
+    document.getElementById('dashboardTasks')?.remove();
+    const taskSection = document.createElement('section');
+    taskSection.id = 'dashboardTasks';
+    taskSection.className = 'panel dashboard-task-panel';
+    taskSection.innerHTML = `<div class="panel-head"><div><h2>Task Updates</h2><small>Tick a task when it is complete. Completed tasks are added to KPI automatically.</small></div><a href="tasks.html" class="task-link">View all tasks</a></div><div class="table-wrap"><table><thead><tr><th>Done</th><th>Task</th><th>Assigned To</th><th>Due</th><th>Status</th></tr></thead><tbody>${(dashboardTasks.items || []).map(task => `<tr><td><input type="checkbox" class="task-check" data-task-id="${task.id}" ${task.status === 'completed' ? 'checked' : ''} ${!HRMS.can('tasks','edit') && Number(task.assigned_to) !== Number(HRMS.user.employee_id) ? 'disabled' : ''}></td><td>${HRMS.esc(task.title)}</td><td>${HRMS.esc(task.employee_name)}</td><td>${HRMS.esc(task.due_date || '—')}</td><td><span class="badge ${String(task.status).replaceAll('_','-')}">${HRMS.esc(String(task.status).replaceAll('_',' '))}</span></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No tasks assigned.</td></tr>'}</tbody></table></div>`;
+    document.querySelector('main').insertBefore(taskSection, document.querySelector('main').querySelector('.grid.two:last-of-type') || null);
+    taskSection.querySelectorAll('.task-check').forEach(check => check.onchange = async () => {
+      check.disabled = true;
+      try { await HRMS.api(`/api/tasks/${check.dataset.taskId}`, {method:'PATCH',body:JSON.stringify({status:check.checked ? 'completed' : 'in_progress',progress:check.checked ? 100 : 0})}); HRMS.toast(check.checked ? 'Task completed and added to KPI' : 'Task reopened'); await dashboard(); }
+      catch(error) { check.checked = !check.checked; check.disabled = false; HRMS.toast(error.message,'error'); }
+    });
     const trend = d.attendanceTrend || [];
     const maxTotal = Math.max(1, ...trend.map(item => item.total));
     const chart = trend.map(item => { const height=Math.max(8,Math.round(item.present / maxTotal * 100)); return `<div style="display:flex;flex:1;min-width:28px;height:150px;align-items:flex-end;justify-content:center;position:relative" title="${item.date}: ${item.present}/${item.total} present"><i style="display:block;width:70%;height:${height}%;background:linear-gradient(180deg,#06b6d4,#2563eb);border-radius:7px 7px 2px 2px;min-height:12px"></i><small style="position:absolute;bottom:-22px;font-size:10px;color:#64748b">${item.date.slice(5)}</small></div>`; }).join('');

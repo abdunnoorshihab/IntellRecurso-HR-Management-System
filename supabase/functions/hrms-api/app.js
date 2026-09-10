@@ -117,6 +117,15 @@ function allowAccess(module, action, ...legacyRoles) {
   };
 }
 function isPrivileged(user) { return ['admin','hr','ceo','chairman'].includes(user.role); }
+async function syncTaskKpi(task) {
+  if (task.status === 'completed') {
+    await db.run(`INSERT INTO performance_reviews(employee_id,period,kpi_name,target,score,status,reviewer_id,notes,source_task_id,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_task_id) DO UPDATE SET employee_id=EXCLUDED.employee_id,score=EXCLUDED.score,status=EXCLUDED.status,notes=EXCLUDED.notes,updated_at=EXCLUDED.updated_at`,
+      task.assigned_to, String(task.updated_at || now()).slice(0,7), 'Task Completion', task.title, 100, 'finalized', task.assigned_by || null, `Completed task: ${task.title}`, task.id, task.created_at || now(), task.updated_at || now());
+  } else {
+    await db.run('DELETE FROM performance_reviews WHERE source_task_id=?', task.id);
+  }
+}
 async function teamIds(user) {
   const explicit = user.currentModule && (user.access || []).find(item => item.module === user.currentModule);
   if (explicit?.data_scope === 'all') return null;
@@ -337,11 +346,14 @@ app.patch('/api/leave/:id/status', requireAuth, allowAccess('leave', 'approve', 
 app.get('/api/tasks', requireAuth, allowAccess('tasks', 'view'), async (req,res)=>{
   try{const ids=await teamIds(req.user);let where='',args=[];if(ids!==null){where=`WHERE t.assigned_to IN (${placeholders(ids)})`;args=ids;}const items=await db.all(`SELECT t.*,e.name employee_name,u.email assigned_by_email FROM tasks t JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=t.assigned_by ${where} ORDER BY CASE t.status WHEN 'pending' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,t.due_date`,...args);res.json({items});}catch(e){sendDbError(res,e);}
 });
+app.get('/api/dashboard/tasks', requireAuth, allowAccess('dashboard', 'view'), async (req,res)=>{
+  try { const ids=await teamIds(req.user); let where='',args=[]; if(ids!==null){where=`WHERE t.assigned_to IN (${placeholders(ids)})`;args=ids;} const items=await db.all(`SELECT t.id,t.title,t.due_date,t.priority,t.status,t.progress,t.assigned_to,e.name employee_name FROM tasks t JOIN employees e ON e.id=t.assigned_to ${where} ORDER BY CASE t.status WHEN 'pending' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,t.due_date NULLS LAST LIMIT 30`,...args); res.json({items}); } catch(e) { sendDbError(res,e); }
+});
 app.post('/api/tasks', requireAuth, allowAccess('tasks', 'create', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{const employeeId=Number(req.body.assigned_to||0);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});const title=cleanText(req.body.title,'');if(!title)return res.status(400).json({error:'Task title is required'});const ts=now();const r=await db.get('INSERT INTO tasks(title,description,assigned_to,assigned_by,due_date,priority,status,progress,kpi_link,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id',title,cleanText(req.body.description),employeeId,req.user.id,cleanText(req.body.due_date),cleanText(req.body.priority,'medium'),'pending',0,cleanText(req.body.kpi_link),ts,ts);await audit(req.user.id,'create','task',r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}
 });
 app.patch('/api/tasks/:id', requireAuth, allowAccess('tasks', 'edit'), async (req,res)=>{
-  try{const id=Number(req.params.id),old=await db.get('SELECT * FROM tasks WHERE id=?',id);if(!old)return res.status(404).json({error:'Task not found'});if(!(await inScope(req.user,old.assigned_to)))return res.status(403).json({error:'Permission denied'});const employeeOnly=req.user.role==='employee',d={...old,...req.body};if(employeeOnly){d.title=old.title;d.description=old.description;d.assigned_to=old.assigned_to;d.due_date=old.due_date;d.priority=old.priority;d.kpi_link=old.kpi_link;}await db.run('UPDATE tasks SET title=?,description=?,assigned_to=?,due_date=?,priority=?,status=?,progress=?,kpi_link=?,updated_at=? WHERE id=?',cleanText(d.title,''),cleanText(d.description),Number(d.assigned_to),cleanText(d.due_date),cleanText(d.priority,'medium'),cleanText(d.status,'pending'),Math.min(100,Math.max(0,num(d.progress))),cleanText(d.kpi_link),now(),id);await audit(req.user.id,'update','task',id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
+  try{const id=Number(req.params.id),old=await db.get('SELECT * FROM tasks WHERE id=?',id);if(!old)return res.status(404).json({error:'Task not found'});if(!(await inScope(req.user,old.assigned_to)))return res.status(403).json({error:'Permission denied'});const employeeOnly=req.user.role==='employee',d={...old,...req.body};if(employeeOnly){d.title=old.title;d.description=old.description;d.assigned_to=old.assigned_to;d.due_date=old.due_date;d.priority=old.priority;d.kpi_link=old.kpi_link;}if(d.status==='completed')d.progress=100;const updatedAt=now();await db.run('UPDATE tasks SET title=?,description=?,assigned_to=?,due_date=?,priority=?,status=?,progress=?,kpi_link=?,updated_at=? WHERE id=?',cleanText(d.title,''),cleanText(d.description),Number(d.assigned_to),cleanText(d.due_date),cleanText(d.priority,'medium'),cleanText(d.status,'pending'),Math.min(100,Math.max(0,num(d.progress))),cleanText(d.kpi_link),updatedAt,id);await syncTaskKpi({...d,id,created_at:old.created_at,updated_at:updatedAt,assigned_by:old.assigned_by});await audit(req.user.id,'update','task',id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
 app.delete('/api/tasks/:id', requireAuth, allowAccess('tasks', 'delete', 'admin','hr','manager'), async (req,res)=>{
   try{const id=Number(req.params.id),r=await db.get('DELETE FROM tasks WHERE id=? RETURNING id',id);if(!r)return res.status(404).json({error:'Task not found'});await audit(req.user.id,'delete','task',id);res.json({ok:true});}catch(e){sendDbError(res,e);}
