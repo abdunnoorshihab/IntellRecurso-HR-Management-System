@@ -7,7 +7,7 @@
       const explicit = (this.user.access || []).find(item => item.module === module);
       if (explicit) return Boolean(explicit[`can_${action}`]);
       const defaults = {
-        chairman: {view:['dashboard','reports'],approve:['leave','requisitions','conveyance','funds']},
+        chairman: {view:['dashboard','tasks','reports'],create:['tasks'],edit:['tasks'],approve:['leave','requisitions','conveyance','funds']},
         ceo: {view:['dashboard','tasks','leave','performance','reports','requisitions','conveyance','funds'],create:['tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
         official: {view:['dashboard']},
         manager: {view:['dashboard','attendance','tasks','leave','performance','requisitions','conveyance','funds','reports'],create:['tasks','leave','performance','requisitions','conveyance','funds'],edit:['attendance','tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},

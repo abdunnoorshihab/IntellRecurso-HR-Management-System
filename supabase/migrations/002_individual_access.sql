@@ -21,4 +21,19 @@ CREATE INDEX IF NOT EXISTS idx_user_access_user ON user_access(user_id);
 ALTER TABLE user_access ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON user_access FROM anon, authenticated;
 
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  entity TEXT,
+  entity_id TEXT,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id,is_read,created_at);
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON notifications FROM anon, authenticated;
+
 COMMIT;

@@ -261,13 +261,25 @@
 
   async function dashboard() {
     const d = await HRMS.api('/api/dashboard');
+    const notifications = await HRMS.api('/api/notifications');
     document.getElementById('summaryCards').innerHTML = cards([
       ['Today', `${d.present} / ${d.totalEmployees}`, 'Employees present'],
       ['Open HR Actions', d.openActions, 'Pending approvals & follow-ups'],
       ['Tasks Due Soon', d.dueSoon, 'Due within 48 hours'],
       ['CEO Attention', d.ceoAttention, 'Items needing review']
     ]);
-    document.getElementById('dashboardControl').innerHTML = `<div>Attendance exceptions <b>${d.attendanceExceptions}</b></div><div>Leave requests pending <b>${d.pendingLeave}</b></div><div>Requisitions awaiting review <b>${d.pendingReq}</b></div><div>Fund settlements open <b>${d.openFunds}</b></div>`;
+    const quick = [];
+    if (HRMS.can('attendance','create')) quick.push('<a href="attendance.html">Mark Attendance</a>');
+    if (HRMS.can('tasks','create')) quick.push('<a href="tasks.html">Assign Task</a>');
+    if (HRMS.can('leave','create')) quick.push('<a href="leave.html">Apply for Leave</a>');
+    if (HRMS.can('requisitions','create')) quick.push('<a href="requisitions.html">Submit Requisition</a>');
+    if (HRMS.can('conveyance','create')) quick.push('<a href="conveyance.html">Apply Conveyance</a>');
+    if (HRMS.can('funds','create')) quick.push('<a href="funds.html">Apply for Fund</a>');
+    const actionPanel = document.querySelector('.actions');
+    if (actionPanel) actionPanel.innerHTML = quick.join('') || '<span class="muted">No actions available.</span>';
+    const notices = notifications.items.slice(0,5).map(item => `<div class="notification ${item.is_read ? '' : 'unread'}" data-notification="${item.id}"><b>${HRMS.esc(item.title)}</b><span>${HRMS.esc(item.message)}</span></div>`).join('') || '<div class="muted">No notifications.</div>';
+    document.getElementById('dashboardControl').innerHTML = `<div>Attendance exceptions <b>${d.attendanceExceptions}</b></div><div>Leave requests pending <b>${d.pendingLeave}</b></div><div>Requisitions awaiting review <b>${d.pendingReq}</b></div><div>Fund settlements open <b>${d.openFunds}</b></div><div class="quick-actions">${quick.join('')}</div><h3>Notifications (${notifications.unread} unread)</h3><div class="notifications">${notices}</div>`;
+    document.querySelectorAll('[data-notification]').forEach(item => item.onclick = async () => { await HRMS.api(`/api/notifications/${item.dataset.notification}/read`, {method:'PATCH', body:'{}'}); item.classList.remove('unread'); });
   }
 
   async function organization() {
