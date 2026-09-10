@@ -48,6 +48,9 @@ function verifyPassword(password, stored) {
 function localDate() {
   return new Intl.DateTimeFormat('en-CA',{timeZone:Deno.env.get('HRMS_TIMEZONE')||'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 }
+function localTime() {
+  return new Intl.DateTimeFormat('en-GB',{timeZone:Deno.env.get('HRMS_TIMEZONE')||'Asia/Dhaka',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
+}
 function sendDbError(res, err) {
   console.error(err);
   if (err && err.code === '23505') return res.status(409).json({ error: 'A record with the same unique value already exists' });
@@ -279,6 +282,19 @@ app.get('/api/attendance', requireAuth, allowAccess('attendance', 'view'), async
     if(req.query.month){clauses.push('substring(a.date from 1 for 7)=?');args.push(req.query.month);}
     const items=await db.all(`SELECT a.*,e.name employee_name FROM attendance a JOIN employees e ON e.id=a.employee_id ${clauses.length?'WHERE '+clauses.join(' AND '):''} ORDER BY a.date DESC,e.name`,...args);res.json({items});
   }catch(e){sendDbError(res,e);}
+});
+app.post('/api/attendance/mark', requireAuth, allowAccess('attendance', 'create', 'admin','hr','manager'), async (req,res)=>{
+  try {
+    const employeeId=Number(req.user.employee_id||0),status=cleanText(req.body.status,'');
+    if(!employeeId)return res.status(400).json({error:'Your account is not linked to an employee record'});
+    if(!['present','absent'].includes(status))return res.status(400).json({error:'Attendance status must be present or absent'});
+    const date=localDate(),time=localTime(),existing=await db.get('SELECT id FROM attendance WHERE employee_id=? AND date=?',employeeId,date);
+    if(existing) await db.run('UPDATE attendance SET check_in=?,status=?,note=?,updated_at=? WHERE id=?',time,status,status==='absent'?'Marked absent by employee':'Marked present by employee',now(),existing.id);
+    else await db.run('INSERT INTO attendance(employee_id,date,check_in,status,note,correction_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',employeeId,date,time,status,status==='absent'?'Marked absent by employee':null,'none',now(),now());
+    await audit(req.user.id,'mark','attendance',existing?.id||null,{employee_id:employeeId,date,time,status});
+    await notifyRoles(['hr'],'Attendance marked',`${req.user.name || req.user.email} marked ${status} on ${date} at ${time}.`,'attendance',existing?.id||null);
+    res.json({ok:true,date,time,status});
+  } catch(e) { sendDbError(res,e); }
 });
 app.post('/api/attendance', requireAuth, allowAccess('attendance', 'create', 'admin','hr','manager'), async (req,res)=>{
   try{

@@ -126,11 +126,17 @@
 
     const tbody = items.map(i => `<tr>${c.columns.map(([k]) => `<td>${formatCell(k,i[k])}</td>`).join('')}<td>${actions(i)}</td></tr>`).join('');
     document.getElementById('dataPanel').innerHTML = `
+      ${page === 'attendance' && HRMS.user.employee_id ? '<div class="attendance-mark"><div><strong>Mark your attendance</strong><small>Choose your status for today. The date and time will be recorded automatically.</small></div><div class="attendance-mark-actions"><button type="button" class="present-btn" data-mark-attendance="present">Present</button><button type="button" class="absent-btn" data-mark-attendance="absent">Absent</button></div></div>' : ''}
       <div class="panel-head"><h2>${c.title} Records</h2><input id="tableSearch" class="search" placeholder="Search records..."></div>
       <div class="table-wrap"><table><thead><tr>${c.columns.map(([,l]) => `<th>${l}</th>`).join('')}<th>Actions</th></tr></thead>
       <tbody id="dataRows">${tbody || `<tr><td colspan="${c.columns.length+1}" class="empty">No records yet.</td></tr>`}</tbody></table></div>`;
     document.getElementById('tableSearch').oninput = e => filterRows(e.target.value);
     bindActions(c, items, emps, depts);
+    document.querySelectorAll('[data-mark-attendance]').forEach(button => button.onclick = async () => {
+      document.querySelectorAll('[data-mark-attendance]').forEach(item => item.disabled = true);
+      try { const result=await HRMS.api('/api/attendance/mark',{method:'POST',body:JSON.stringify({status:button.dataset.markAttendance})}); HRMS.toast(`Marked ${result.status} at ${result.time}`); await renderModule(c); }
+      catch(error) { HRMS.toast(error.message,'error'); document.querySelectorAll('[data-mark-attendance]').forEach(item => item.disabled = false); }
+    });
   }
 
   function cards(arr) {
