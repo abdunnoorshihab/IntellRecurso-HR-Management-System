@@ -7,10 +7,10 @@
       const explicit = (this.user.access || []).find(item => item.module === module);
       if (explicit) return Boolean(explicit[`can_${action}`]);
       const defaults = {
-        chairman: {view:['dashboard','tasks','reports'],create:['tasks'],edit:['tasks'],approve:['leave','requisitions','conveyance','funds']},
-        ceo: {view:['dashboard','tasks','leave','performance','reports','requisitions','conveyance','funds'],create:['tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
+        chairman: {view:['dashboard','tasks','events','reports'],create:['tasks'],edit:['tasks'],approve:['leave','requisitions','conveyance','funds']},
+        ceo: {view:['dashboard','tasks','events','leave','performance','reports','requisitions','conveyance','funds'],create:['tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
         official: {view:['dashboard']},
-        manager: {view:['dashboard','attendance','tasks','leave','performance','requisitions','conveyance','funds','reports'],create:['tasks','leave','performance','requisitions','conveyance','funds'],edit:['attendance','tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
+        manager: {view:['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'],create:['tasks','events','leave','performance','requisitions','conveyance','funds'],edit:['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
         employee: {view:['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'],create:['attendance','tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','requisitions','conveyance','funds']},
         hr: {view:['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters'],create:['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'],edit:['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'],approve:['leave','requisitions','conveyance','funds']}
       };

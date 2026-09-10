@@ -6,7 +6,7 @@ import db from './db.js';
 const app = express();
 const SESSION_HOURS = Number(Deno.env.get('HRMS_SESSION_HOURS') || 12);
 const ROLES = ['admin','hr','chairman','ceo','official','manager','employee'];
-const ACCESS_MODULES = ['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'];
+const ACCESS_MODULES = ['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters','events','administration'];
 
 app.use((req,res,next)=>{
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -82,15 +82,15 @@ function allow(...roles) {
 const ROLE_ACCESS = {
   admin: { view: ACCESS_MODULES, create: ACCESS_MODULES, edit: ACCESS_MODULES, delete: ACCESS_MODULES, approve: ACCESS_MODULES },
   hr: { view: ACCESS_MODULES, create: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters','reports'], edit: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'], approve: ['leave','requisitions','conveyance','funds'], delete: [] },
-    chairman: { view: ['dashboard','tasks','reports'], create: ['tasks'], edit: ['tasks'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
-  ceo: { view: ['dashboard','tasks','leave','performance','reports','requisitions','conveyance','funds'], create: ['tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','performance','requisitions','conveyance','funds'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
+    chairman: { view: ['dashboard','tasks','events','reports'], create: ['tasks'], edit: ['tasks'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
+    ceo: { view: ['dashboard','tasks','events','leave','performance','reports','requisitions','conveyance','funds'], create: ['tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','performance','requisitions','conveyance','funds'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
     try {
       const users = await db.all(`SELECT id FROM users WHERE status='active' AND role IN (${placeholders(roles)})`, ...roles);
       for (const user of users) await db.run('INSERT INTO notifications(user_id,title,message,entity,entity_id,created_at) VALUES(?,?,?,?,?,?)', user.id, title, message, entity, entityId == null ? null : String(entityId), now());
     } catch (e) { console.error('Notification write failed', e); }
   }
   official: { view: ['dashboard'], create: [], edit: [], delete: [], approve: [] },
-  manager: { view: ['dashboard','attendance','tasks','leave','performance','requisitions','conveyance','funds','reports'], create: ['tasks','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
+  manager: { view: ['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'], create: ['tasks','events','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
   employee: { view: ['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'], create: ['attendance','tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','requisitions','conveyance','funds'], delete: [], approve: [] }
 };
 async function hasAccess(user, module, action) {
@@ -166,6 +166,8 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.get('/api/notifications', requireAuth, async (req,res)=>{try{const items=await db.all('SELECT id,title,message,entity,entity_id,is_read,created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50',req.user.id);res.json({items,unread:items.filter(item=>!item.is_read).length});}catch(e){sendDbError(res,e);}});
 app.patch('/api/notifications/:id/read', requireAuth, async (req,res)=>{try{await db.run('UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?',Number(req.params.id),req.user.id);res.json({ok:true});}catch(e){sendDbError(res,e);}});
+app.get('/api/events', requireAuth, allowAccess('events', 'view', 'admin','hr','chairman','ceo','official','manager','employee'), async (req,res)=>{try{const items=await db.all("SELECT id,title,event_date,event_time,location,description FROM events WHERE event_date>=? ORDER BY event_date,event_time NULLS LAST LIMIT 8",localDate());res.json({items});}catch(e){sendDbError(res,e);}});
+app.post('/api/events', requireAuth, allowAccess('events', 'create', 'admin','hr','manager'), async (req,res)=>{try{const title=cleanText(req.body.title,''),eventDate=cleanText(req.body.event_date,'');if(!title||!eventDate)return res.status(400).json({error:'Event title and date are required'});const r=await db.get('INSERT INTO events(title,event_date,event_time,location,description,created_by,created_at) VALUES(?,?,?,?,?,?,?) RETURNING id',title,eventDate,cleanText(req.body.event_time),cleanText(req.body.location),cleanText(req.body.description),req.user.id,now());await audit(req.user.id,'create','event',r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}});
 app.post('/api/auth/change-password', requireAuth, async (req,res)=>{
   try {
     const current=String(req.body.current_password||''), next=String(req.body.new_password||'');
@@ -199,8 +201,11 @@ app.get('/api/dashboard', requireAuth, allowAccess('dashboard', 'view'), async (
     const taskScope = scoped ? ` AND assigned_to IN (${ph})` : '';
     const dueSoon = Number((await db.get(`SELECT COUNT(*)::int c FROM tasks WHERE status NOT IN ('completed','cancelled') AND due_date IS NOT NULL AND due_date::date<=CURRENT_DATE+INTERVAL '2 day'${taskScope}`,...empArgs)).c || 0);
     const urgent = Number((await db.get(`SELECT COUNT(*)::int c FROM requisitions WHERE status='pending' AND priority IN ('high','urgent')${recordScope}`,...empArgs)).c || 0);
+    const attendanceTrend=[];
+    for(let offset=6;offset>=0;offset--){const date=new Date(Date.now()-offset*86400000).toISOString().slice(0,10);const row=await db.get(`SELECT COUNT(*)::int total,COUNT(*) FILTER (WHERE status IN ('present','late'))::int present FROM attendance WHERE date=?${recordScope}`,date,...empArgs);attendanceTrend.push({date,total:Number(row?.total||0),present:Number(row?.present||0)});}
+    const events=await db.all("SELECT id,title,event_date,event_time,location,description FROM events WHERE event_date>=? ORDER BY event_date,event_time NULLS LAST LIMIT 8",today);
     const openActions = pendingLeave + pendingReq + openFunds + attendanceExceptions;
-    res.json({ today,totalEmployees,present,attendanceExceptions,pendingLeave,pendingReq,openFunds,dueSoon,openActions,ceoAttention:urgent+pendingLeave });
+    res.json({ today,totalEmployees,present,attendanceExceptions,pendingLeave,pendingReq,openFunds,dueSoon,openActions,ceoAttention:urgent+pendingLeave,attendanceTrend,events });
   } catch (e) { sendDbError(res,e); }
 });
 

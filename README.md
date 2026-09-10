@@ -123,7 +123,7 @@ Use the resulting hash when inserting the first row into `users` through a trust
 
 ## Individual access control
 
-Run `supabase/migrations/002_individual_access.sql` after the base schema. Administrators can then open **Administration > Access** for any user and assign module-level view, create, edit, delete and approve permissions with `self`, `team` or `all` data scope. The supported account roles include `chairman` and `official`; custom access rows override that role's default permissions.
+Run `supabase/migrations/002_individual_access.sql` after the base schema. This adds per-user access, notifications and upcoming events. Administrators can then open **Administration > Access** for any user and assign module-level view, create, edit, delete and approve permissions with `self`, `team` or `all` data scope. The supported account roles include `chairman` and `official`; custom access rows override that role's default permissions. Managers can create upcoming events from the dashboard, and employees can see them there.
 
 After applying the migration, deploy the updated function:
 

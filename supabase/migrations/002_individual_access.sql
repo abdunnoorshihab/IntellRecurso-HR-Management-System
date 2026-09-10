@@ -36,4 +36,19 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id,
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON notifications FROM anon, authenticated;
 
+CREATE TABLE IF NOT EXISTS events (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  event_date TEXT NOT NULL,
+  event_time TEXT,
+  location TEXT,
+  description TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON events FROM anon, authenticated;
+
 COMMIT;
