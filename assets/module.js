@@ -100,20 +100,7 @@
   }
 
   function canCreateForPage() {
-    const role = HRMS.user.role;
-    const roles = {
-      employees: ['admin','hr'],
-      attendance: ['admin','hr','manager'],
-      tasks: ['admin','hr','ceo','manager'],
-      leave: ['admin','hr','ceo','manager','employee'],
-      performance: ['admin','hr','ceo','manager'],
-      requisitions: ['admin','hr','ceo','manager','employee'],
-      conveyance: ['admin','hr','ceo','manager','employee'],
-      salary: ['admin','hr'],
-      funds: ['admin','hr','ceo','manager','employee'],
-      letters: ['admin','hr']
-    };
-    return (roles[page] || []).includes(role);
+    return HRMS.can(page, 'create');
   }
 
   async function renderModule(c) {
@@ -165,17 +152,17 @@
 
   function actions(i) {
     const role = HRMS.user.role;
-    const elevated = ['admin','hr'].includes(role);
-    const approver = ['admin','hr','ceo','manager'].includes(role);
+    const elevated = HRMS.can(page, 'edit');
+    const approver = HRMS.can(page, 'approve');
     let html = '';
 
     if (page === 'employees' && elevated) html += editBtn(i.id);
     if (page === 'attendance') {
-      if (['admin','hr','manager'].includes(role)) html += editBtn(i.id);
+      if (HRMS.can(page, 'edit')) html += editBtn(i.id);
       else if (role === 'employee' && isSelf(i)) html += `<button class="mini secondary" data-correction="${i.id}">${i.correction_status === 'pending' ? 'Correction Pending' : 'Request Correction'}</button>`;
     }
-    if (page === 'tasks' && (['admin','hr','ceo','manager'].includes(role) || (role === 'employee' && isSelf(i)))) html += editBtn(i.id);
-    if (page === 'performance' && ['admin','hr','ceo','manager'].includes(role)) html += editBtn(i.id);
+    if (page === 'tasks' && (HRMS.can(page, 'edit') || (role === 'employee' && isSelf(i)))) html += editBtn(i.id);
+    if (page === 'performance' && HRMS.can(page, 'edit')) html += editBtn(i.id);
 
     if (page === 'leave' && i.status === 'pending') {
       if (elevated || isSelf(i)) html += editBtn(i.id);
@@ -346,7 +333,7 @@
     ]);
     document.getElementById('dataPanel').innerHTML = `
       <div class="admin-section"><div class="panel-head"><h2>User Accounts</h2>${HRMS.user.role==='admin'?'<button id="newUser">+ Add User</button>':''}</div>
-      <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>${users.items.map(u => `<tr><td>${HRMS.esc(u.employee_name || '—')}</td><td>${HRMS.esc(u.email)}</td><td>${formatCell('status',u.role)}</td><td>${formatCell('status',u.status)}</td><td>${HRMS.user.role==='admin'?`<button class="mini secondary" data-edit-user="${u.id}">Edit</button>`:'—'}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>${users.items.map(u => `<tr><td>${HRMS.esc(u.employee_name || '—')}</td><td>${HRMS.esc(u.email)}</td><td>${formatCell('status',u.role)}</td><td>${formatCell('status',u.status)}</td><td>${HRMS.user.role==='admin'?`<button class="mini secondary" data-edit-user="${u.id}">Edit</button> <button class="mini secondary" data-access-user="${u.id}">Access</button>`:'—'}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="admin-section"><h2>System Settings</h2><div class="settings-grid">${settings.items.map(s => `<label>${HRMS.esc(s.key.replaceAll('_',' '))}<div><input data-setting="${HRMS.esc(s.key)}" value="${HRMS.esc(s.value)}"><button class="mini" data-save-setting="${HRMS.esc(s.key)}">Save</button></div></label>`).join('')}</div></div>
       <div class="admin-section"><h2>Recent Audit Log</h2><div class="audit-list">${audit.items.slice(0,30).map(a => `<div><b>${HRMS.esc(a.action)} ${HRMS.esc(a.entity)}</b><span>${HRMS.esc(a.user_email || 'system')}</span><small>${HRMS.esc(a.created_at)}</small></div>`).join('')}</div></div>`;
 
@@ -359,7 +346,9 @@
 
     if (HRMS.user.role === 'admin') {
       const emps = await getEmployees();
-      const roleOptions = ['admin','hr','ceo','manager','employee'].map(v => ({value:v,label:v}));
+      const roleOptions = ['admin','hr','chairman','ceo','official','manager','employee'].map(v => ({value:v,label:v}));
+      const accessOptions = [{value:'',label:'No access'},{value:'view|self',label:'View - Self'},{value:'view|team',label:'View - Team'},{value:'view|all',label:'View - All'},{value:'view,create,edit|self',label:'View / Create / Edit - Self'},{value:'view,create,edit|team',label:'View / Create / Edit - Team'},{value:'view,create,edit,approve|all',label:'View / Create / Edit / Approve - All'},{value:'view,create,edit,delete,approve|all',label:'Full access - All'}];
+      const accessModules = ['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'];
       const statusOptions = ['active','disabled'].map(v => ({value:v,label:v}));
       document.getElementById('newUser')?.addEventListener('click', () => HRMS.modal('Create User', [
         {name:'employee_id',label:'Employee',type:'select',options:[{value:'',label:'— No employee link —'},...emps.map(e=>({value:e.id,label:e.name}))]},
@@ -376,6 +365,25 @@
           {name:'status',label:'Status',type:'select',options:statusOptions},
           {name:'password',label:'Reset Password (optional)',type:'password'}
         ], u, async obj => { if (!obj.password) delete obj.password; await HRMS.api(`/api/admin/users/${u.id}`,{method:'PATCH',body:JSON.stringify(obj)}); await admin(); });
+      });
+      document.querySelectorAll('[data-access-user]').forEach(b => b.onclick = async () => {
+        const userId = b.dataset.accessUser;
+        const current = (await HRMS.api(`/api/admin/access/${userId}`)).items;
+        const values = {};
+        accessModules.forEach(module => {
+          const item = current.find(x => x.module === module);
+          values[`access_${module}`] = item ? `${['view','create','edit','delete','approve'].filter(action => item[`can_${action}`]).join(',')}|${item.data_scope}` : '';
+        });
+        HRMS.modal(`Access: ${users.items.find(x => String(x.id) === String(userId))?.employee_name || 'User'}`,
+          accessModules.map(module => ({name:`access_${module}`,label:module.replaceAll('_',' '),type:'select',options:accessOptions})), values,
+          async obj => {
+            const permissions = accessModules.map(module => {
+              const [actions, data_scope] = String(obj[`access_${module}`] || '|self').split('|');
+              return {module, data_scope, can_view:actions.split(',').includes('view'), can_create:actions.split(',').includes('create'), can_edit:actions.split(',').includes('edit'), can_delete:actions.split(',').includes('delete'), can_approve:actions.split(',').includes('approve')};
+            }).filter(item => item.can_view || item.can_create || item.can_edit || item.can_delete || item.can_approve);
+            await HRMS.api(`/api/admin/access/${userId}`, {method:'PUT',body:JSON.stringify({permissions})});
+            HRMS.toast('Individual access saved');
+          });
       });
     }
   }

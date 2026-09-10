@@ -5,7 +5,8 @@ import db from './db.js';
 
 const app = express();
 const SESSION_HOURS = Number(Deno.env.get('HRMS_SESSION_HOURS') || 12);
-const ROLES = ['admin','hr','ceo','manager','employee'];
+const ROLES = ['admin','hr','chairman','ceo','official','manager','employee'];
+const ACCESS_MODULES = ['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'];
 
 app.use((req,res,next)=>{
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -61,7 +62,8 @@ async function audit(userId, action, entity, entityId, details = null) {
 async function sessionUser(req) {
   const token = cookies(req).ir_hrms_session;
   if (!token) return null;
-  const row = await db.get(`SELECT u.id,u.employee_id,u.email,u.role,u.status,e.name,e.designation
+  const row = await db.get(`SELECT u.id,u.employee_id,u.email,u.role,u.status,e.name,e.designation,
+    COALESCE((SELECT json_agg(json_build_object('module',ua.module,'can_view',ua.can_view,'can_create',ua.can_create,'can_edit',ua.can_edit,'can_delete',ua.can_delete,'can_approve',ua.can_approve,'data_scope',ua.data_scope)) FROM user_access ua WHERE ua.user_id=u.id),'[]'::json) access
     FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN employees e ON e.id=u.employee_id
     WHERE s.token=? AND s.expires_at>? AND u.status='active'`, token, now());
   return row || null;
@@ -77,9 +79,38 @@ async function requireAuth(req, res, next) {
 function allow(...roles) {
   return (req, res, next) => roles.includes(req.user.role) ? next() : res.status(403).json({ error: 'Permission denied' });
 }
-function isPrivileged(user) { return ['admin','hr','ceo'].includes(user.role); }
+const ROLE_ACCESS = {
+  admin: { view: ACCESS_MODULES, create: ACCESS_MODULES, edit: ACCESS_MODULES, delete: ACCESS_MODULES, approve: ACCESS_MODULES },
+  hr: { view: ACCESS_MODULES, create: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters','reports'], edit: ['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'], approve: ['leave','requisitions','conveyance','funds'], delete: [] },
+  chairman: { view: ['dashboard','reports'], create: [], edit: [], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
+  ceo: { view: ['dashboard','tasks','leave','performance','reports','requisitions','conveyance','funds'], create: ['tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','performance','requisitions','conveyance','funds'], delete: [], approve: ['leave','requisitions','conveyance','funds'] },
+  official: { view: ['dashboard'], create: [], edit: [], delete: [], approve: [] },
+  manager: { view: ['dashboard','attendance','tasks','leave','performance','requisitions','conveyance','funds','reports'], create: ['tasks','leave','performance','requisitions','conveyance','funds'], edit: ['attendance','tasks','leave','performance','requisitions','conveyance','funds'], delete: ['tasks'], approve: ['leave','requisitions','conveyance','funds'] },
+  employee: { view: ['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'], create: ['attendance','tasks','leave','requisitions','conveyance','funds'], edit: ['tasks','leave','requisitions','conveyance','funds'], delete: [], approve: [] }
+};
+async function hasAccess(user, module, action) {
+  if (user.role === 'admin') return true;
+  const explicit = (user.access || []).find(item => item.module === module);
+  if (explicit) return Boolean(explicit[`can_${action}`]);
+  return Boolean((ROLE_ACCESS[user.role] || {})[action]?.includes(module));
+}
+function hasAllScope(user, module) {
+  if (['admin','hr','ceo','chairman'].includes(user.role)) return true;
+  return (user.access || []).some(item => item.module === module && item.data_scope === 'all');
+}
+function allowAccess(module, action, ...legacyRoles) {
+  return async (req, res, next) => {
+    try { if (await hasAccess(req.user, module, action)) { req.user.currentModule = module; return next(); } }
+    catch (e) { return sendDbError(res, e); }
+    if (legacyRoles.includes(req.user.role)) return next();
+    return res.status(403).json({ error: 'Permission denied' });
+  };
+}
+function isPrivileged(user) { return ['admin','hr','ceo','chairman'].includes(user.role); }
 async function teamIds(user) {
-  if (isPrivileged(user)) return null;
+  const explicit = user.currentModule && (user.access || []).find(item => item.module === user.currentModule);
+  if (explicit?.data_scope === 'all') return null;
+  if (isPrivileged(user) && !explicit) return null;
   if (!user.employee_id) return [];
   if (user.role === 'manager') {
     const direct = await db.all('SELECT id FROM employees WHERE reports_to=?', user.employee_id);
@@ -88,6 +119,7 @@ async function teamIds(user) {
   return [Number(user.employee_id)];
 }
 async function inScope(user, employeeId) {
+  if ((user.currentModule && hasAllScope(user, user.currentModule)) || hasAllScope(user, 'employees')) return true;
   const ids = await teamIds(user);
   return ids === null || ids.includes(Number(employeeId));
 }
@@ -141,7 +173,7 @@ app.post('/api/auth/change-password', requireAuth, async (req,res)=>{
   } catch (e) { sendDbError(res,e); }
 });
 
-app.get('/api/dashboard', requireAuth, async (req, res) => {
+app.get('/api/dashboard', requireAuth, allowAccess('dashboard', 'view'), async (req, res) => {
   try {
     const today = localDate();
     const ids = await teamIds(req.user);
@@ -165,10 +197,10 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
   } catch (e) { sendDbError(res,e); }
 });
 
-app.get('/api/departments', requireAuth, async (req, res) => {
+app.get('/api/departments', requireAuth, allowAccess('organization', 'view'), async (req, res) => {
   try { res.json({ items: await db.all('SELECT * FROM departments ORDER BY name') }); } catch(e){ sendDbError(res,e); }
 });
-app.post('/api/departments', requireAuth, allow('admin','hr'), async (req, res) => {
+app.post('/api/departments', requireAuth, allowAccess('organization', 'create', 'admin','hr'), async (req, res) => {
   try {
     const name = cleanText(req.body.name, '');
     if (!name) return res.status(400).json({ error: 'Department name is required' });
@@ -178,7 +210,7 @@ app.post('/api/departments', requireAuth, allow('admin','hr'), async (req, res) 
   } catch (e) { sendDbError(res, e); }
 });
 
-app.get('/api/employees', requireAuth, async (req, res) => {
+app.get('/api/employees', requireAuth, allowAccess('employees', 'view'), async (req, res) => {
   try {
     const ids = await teamIds(req.user); let where=''; let args=[];
     if(ids!==null){where=`WHERE e.id IN (${placeholders(ids)})`;args=ids;}
@@ -187,7 +219,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
     res.json({items});
   } catch(e){sendDbError(res,e);}
 });
-app.get('/api/employees/:id', requireAuth, async (req,res)=>{
+app.get('/api/employees/:id', requireAuth, allowAccess('employees', 'view'), async (req,res)=>{
   try{
     const id=Number(req.params.id); if(!(await inScope(req.user,id)))return res.status(403).json({error:'Permission denied'});
     let item=await db.get('SELECT e.*,d.name department,m.name manager_name FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN employees m ON m.id=e.reports_to WHERE e.id=?',id);
@@ -196,7 +228,7 @@ app.get('/api/employees/:id', requireAuth, async (req,res)=>{
     res.json({item});
   }catch(e){sendDbError(res,e);}
 });
-app.post('/api/employees', requireAuth, allow('admin','hr'), async (req,res)=>{
+app.post('/api/employees', requireAuth, allowAccess('employees', 'create', 'admin','hr'), async (req,res)=>{
   try{
     const name=cleanText(req.body.name,''),designation=cleanText(req.body.designation,'');
     if(!name||!designation)return res.status(400).json({error:'Name and designation are required'});
@@ -206,7 +238,7 @@ app.post('/api/employees', requireAuth, allow('admin','hr'), async (req,res)=>{
     await audit(req.user.id,'create','employee',r.id,{name,designation});res.status(201).json({id:Number(r.id)});
   }catch(e){sendDbError(res,e);}
 });
-app.patch('/api/employees/:id', requireAuth, allow('admin','hr'), async (req,res)=>{
+app.patch('/api/employees/:id', requireAuth, allowAccess('employees', 'edit', 'admin','hr'), async (req,res)=>{
   try{
     const id=Number(req.params.id),old=await db.get('SELECT * FROM employees WHERE id=?',id);if(!old)return res.status(404).json({error:'Employee not found'});
     const d={...old,...req.body};
@@ -214,17 +246,17 @@ app.patch('/api/employees/:id', requireAuth, allow('admin','hr'), async (req,res
     await audit(req.user.id,'update','employee',id,req.body);res.json({ok:true});
   }catch(e){sendDbError(res,e);}
 });
-app.delete('/api/employees/:id', requireAuth, allow('admin'), async (req,res)=>{
+app.delete('/api/employees/:id', requireAuth, allowAccess('employees', 'delete', 'admin'), async (req,res)=>{
   try{
     const id=Number(req.params.id),r=await db.get('DELETE FROM employees WHERE id=? RETURNING id',id);if(!r)return res.status(404).json({error:'Employee not found'});
     await audit(req.user.id,'delete','employee',id);res.json({ok:true});
   }catch(e){sendDbError(res,e);}
 });
-app.get('/api/organization', requireAuth, async (req,res)=>{
+app.get('/api/organization', requireAuth, allowAccess('organization', 'view'), async (req,res)=>{
   try{const items=await db.all("SELECT e.id,e.name,e.designation,e.reports_to,m.name manager_name,d.name department FROM employees e LEFT JOIN employees m ON m.id=e.reports_to LEFT JOIN departments d ON d.id=e.department_id WHERE e.employment_status='active' ORDER BY e.reports_to NULLS FIRST,e.name");res.json({items});}catch(e){sendDbError(res,e);}
 });
 
-app.get('/api/attendance', requireAuth, async (req,res)=>{
+app.get('/api/attendance', requireAuth, allowAccess('attendance', 'view'), async (req,res)=>{
   try{
     const clauses=[],args=[],ids=await teamIds(req.user);
     if(ids!==null){clauses.push(`a.employee_id IN (${placeholders(ids)})`);args.push(...ids);}
@@ -233,7 +265,7 @@ app.get('/api/attendance', requireAuth, async (req,res)=>{
     const items=await db.all(`SELECT a.*,e.name employee_name FROM attendance a JOIN employees e ON e.id=a.employee_id ${clauses.length?'WHERE '+clauses.join(' AND '):''} ORDER BY a.date DESC,e.name`,...args);res.json({items});
   }catch(e){sendDbError(res,e);}
 });
-app.post('/api/attendance', requireAuth, allow('admin','hr','manager'), async (req,res)=>{
+app.post('/api/attendance', requireAuth, allowAccess('attendance', 'create', 'admin','hr','manager'), async (req,res)=>{
   try{
     const employeeId=getEmployeeId(req);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});
     if(req.user.role==='manager'&&employeeId===Number(req.user.employee_id))return res.status(403).json({error:'Managers cannot modify their own attendance'});
@@ -243,7 +275,7 @@ app.post('/api/attendance', requireAuth, allow('admin','hr','manager'), async (r
     const r=await db.get('INSERT INTO attendance(employee_id,date,check_in,check_out,status,late_minutes,overtime_minutes,note,correction_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id',employeeId,date,cleanText(req.body.check_in),cleanText(req.body.check_out),cleanText(req.body.status,'present'),num(req.body.late_minutes),num(req.body.overtime_minutes),cleanText(req.body.note),correction,ts,ts);await audit(req.user.id,'create','attendance',r.id,req.body);res.status(201).json({id:Number(r.id)});
   }catch(e){sendDbError(res,e);}
 });
-app.patch('/api/attendance/:id', requireAuth, async (req,res)=>{
+app.patch('/api/attendance/:id', requireAuth, allowAccess('attendance', 'edit'), async (req,res)=>{
   try{
     const id=Number(req.params.id),old=await db.get('SELECT * FROM attendance WHERE id=?',id);if(!old)return res.status(404).json({error:'Attendance record not found'});if(!(await inScope(req.user,old.employee_id)))return res.status(403).json({error:'Permission denied'});if(req.user.role==='manager'&&Number(old.employee_id)===Number(req.user.employee_id))return res.status(403).json({error:'Managers cannot modify their own attendance'});
     if(req.user.role==='employee'){const note=cleanText(req.body.note,old.note);await db.run("UPDATE attendance SET note=?,correction_status='pending',updated_at=? WHERE id=?",note,now(),id);await audit(req.user.id,'correction_request','attendance',id,{note});return res.json({ok:true,correction_status:'pending'});}
@@ -251,56 +283,56 @@ app.patch('/api/attendance/:id', requireAuth, async (req,res)=>{
   }catch(e){sendDbError(res,e);}
 });
 
-app.get('/api/leave', requireAuth, async (req,res)=>{
+app.get('/api/leave', requireAuth, allowAccess('leave', 'view'), async (req,res)=>{
   try{const ids=await teamIds(req.user);let where='',args=[];if(ids!==null){where=`WHERE l.employee_id IN (${placeholders(ids)})`;args=ids;}const items=await db.all(`SELECT l.*,e.name employee_name,u.email approver_email FROM leave_requests l JOIN employees e ON e.id=l.employee_id LEFT JOIN users u ON u.id=l.approver_id ${where} ORDER BY l.created_at DESC`,...args);res.json({items});}catch(e){sendDbError(res,e);}
 });
-app.post('/api/leave', requireAuth, async (req,res)=>{
+app.post('/api/leave', requireAuth, allowAccess('leave', 'create'), async (req,res)=>{
   try{const employeeId=getEmployeeId(req);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});const start=cleanText(req.body.start_date,''),end=cleanText(req.body.end_date,'');if(!start||!end)return res.status(400).json({error:'Start and end dates are required'});const days=req.body.days?num(req.body.days,1):Math.max(1,Math.round((new Date(end)-new Date(start))/86400000)+1),ts=now();const r=await db.get('INSERT INTO leave_requests(employee_id,leave_type,start_date,end_date,days,reason,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id',employeeId,cleanText(req.body.leave_type,'Annual'),start,end,days,cleanText(req.body.reason),'pending',ts,ts);await audit(req.user.id,'create','leave',r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}
 });
-app.patch('/api/leave/:id', requireAuth, async (req,res)=>{
+app.patch('/api/leave/:id', requireAuth, allowAccess('leave', 'edit'), async (req,res)=>{
   try{const id=Number(req.params.id),item=await db.get('SELECT * FROM leave_requests WHERE id=?',id);if(!item)return res.status(404).json({error:'Leave request not found'});if(!(await inScope(req.user,item.employee_id)))return res.status(403).json({error:'Permission denied'});if(!['admin','hr'].includes(req.user.role)&&Number(item.employee_id)!==Number(req.user.employee_id))return res.status(403).json({error:'Only the requester or HR can edit this leave request'});if(!['admin','hr'].includes(req.user.role)&&item.status!=='pending')return res.status(409).json({error:'Only pending leave can be edited'});const d={...item,...req.body},start=cleanText(d.start_date,item.start_date),end=cleanText(d.end_date,item.end_date),days=req.body.days!==undefined?num(req.body.days,item.days):Math.max(1,Math.round((new Date(end)-new Date(start))/86400000)+1);await db.run('UPDATE leave_requests SET leave_type=?,start_date=?,end_date=?,days=?,reason=?,updated_at=? WHERE id=?',cleanText(d.leave_type,item.leave_type),start,end,days,cleanText(d.reason),now(),id);await audit(req.user.id,'update','leave',id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
-app.patch('/api/leave/:id/cancel', requireAuth, async (req,res)=>{
+app.patch('/api/leave/:id/cancel', requireAuth, allowAccess('leave', 'edit'), async (req,res)=>{
   try{const id=Number(req.params.id),item=await db.get('SELECT * FROM leave_requests WHERE id=?',id);if(!item)return res.status(404).json({error:'Leave request not found'});if(!(await inScope(req.user,item.employee_id)))return res.status(403).json({error:'Permission denied'});if(!['admin','hr'].includes(req.user.role)&&Number(item.employee_id)!==Number(req.user.employee_id))return res.status(403).json({error:'Only the requester or HR can cancel this leave request'});if(item.status!=='pending')return res.status(409).json({error:'Only pending leave can be cancelled'});await db.run("UPDATE leave_requests SET status='cancelled',updated_at=? WHERE id=?",now(),id);await audit(req.user.id,'cancel','leave',id);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
-app.patch('/api/leave/:id/status', requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+app.patch('/api/leave/:id/status', requireAuth, allowAccess('leave', 'approve', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{const id=Number(req.params.id),item=await db.get('SELECT * FROM leave_requests WHERE id=?',id);if(!item)return res.status(404).json({error:'Leave request not found'});if(!(await inScope(req.user,item.employee_id)))return res.status(403).json({error:'Permission denied'});if(!['admin','hr'].includes(req.user.role)&&Number(item.employee_id)===Number(req.user.employee_id))return res.status(403).json({error:'You cannot approve your own leave request'});const status=cleanText(req.body.status,'');if(!['approved','rejected','pending','cancelled'].includes(status))return res.status(400).json({error:'Invalid status'});await db.run('UPDATE leave_requests SET status=?,approver_id=?,decision_note=?,updated_at=? WHERE id=?',status,req.user.id,cleanText(req.body.decision_note),now(),id);await audit(req.user.id,'status','leave',id,{status});res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
 
-app.get('/api/tasks', requireAuth, async (req,res)=>{
+app.get('/api/tasks', requireAuth, allowAccess('tasks', 'view'), async (req,res)=>{
   try{const ids=await teamIds(req.user);let where='',args=[];if(ids!==null){where=`WHERE t.assigned_to IN (${placeholders(ids)})`;args=ids;}const items=await db.all(`SELECT t.*,e.name employee_name,u.email assigned_by_email FROM tasks t JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=t.assigned_by ${where} ORDER BY CASE t.status WHEN 'pending' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,t.due_date`,...args);res.json({items});}catch(e){sendDbError(res,e);}
 });
-app.post('/api/tasks', requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+app.post('/api/tasks', requireAuth, allowAccess('tasks', 'create', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{const employeeId=Number(req.body.assigned_to||0);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});const title=cleanText(req.body.title,'');if(!title)return res.status(400).json({error:'Task title is required'});const ts=now();const r=await db.get('INSERT INTO tasks(title,description,assigned_to,assigned_by,due_date,priority,status,progress,kpi_link,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id',title,cleanText(req.body.description),employeeId,req.user.id,cleanText(req.body.due_date),cleanText(req.body.priority,'medium'),'pending',0,cleanText(req.body.kpi_link),ts,ts);await audit(req.user.id,'create','task',r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}
 });
-app.patch('/api/tasks/:id', requireAuth, async (req,res)=>{
+app.patch('/api/tasks/:id', requireAuth, allowAccess('tasks', 'edit'), async (req,res)=>{
   try{const id=Number(req.params.id),old=await db.get('SELECT * FROM tasks WHERE id=?',id);if(!old)return res.status(404).json({error:'Task not found'});if(!(await inScope(req.user,old.assigned_to)))return res.status(403).json({error:'Permission denied'});const employeeOnly=req.user.role==='employee',d={...old,...req.body};if(employeeOnly){d.title=old.title;d.description=old.description;d.assigned_to=old.assigned_to;d.due_date=old.due_date;d.priority=old.priority;d.kpi_link=old.kpi_link;}await db.run('UPDATE tasks SET title=?,description=?,assigned_to=?,due_date=?,priority=?,status=?,progress=?,kpi_link=?,updated_at=? WHERE id=?',cleanText(d.title,''),cleanText(d.description),Number(d.assigned_to),cleanText(d.due_date),cleanText(d.priority,'medium'),cleanText(d.status,'pending'),Math.min(100,Math.max(0,num(d.progress))),cleanText(d.kpi_link),now(),id);await audit(req.user.id,'update','task',id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
-app.delete('/api/tasks/:id', requireAuth, allow('admin','hr','manager'), async (req,res)=>{
+app.delete('/api/tasks/:id', requireAuth, allowAccess('tasks', 'delete', 'admin','hr','manager'), async (req,res)=>{
   try{const id=Number(req.params.id),r=await db.get('DELETE FROM tasks WHERE id=? RETURNING id',id);if(!r)return res.status(404).json({error:'Task not found'});await audit(req.user.id,'delete','task',id);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
 
-app.get('/api/performance', requireAuth, async (req,res)=>{
+app.get('/api/performance', requireAuth, allowAccess('performance', 'view'), async (req,res)=>{
   try{const ids=await teamIds(req.user);let where='',args=[];if(ids!==null){where=`WHERE p.employee_id IN (${placeholders(ids)})`;args=ids;}const items=await db.all(`SELECT p.*,e.name employee_name,u.email reviewer_email FROM performance_reviews p JOIN employees e ON e.id=p.employee_id LEFT JOIN users u ON u.id=p.reviewer_id ${where} ORDER BY p.period DESC,e.name`,...args);res.json({items});}catch(e){sendDbError(res,e);}
 });
-app.post('/api/performance', requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+app.post('/api/performance', requireAuth, allowAccess('performance', 'create', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{const employeeId=Number(req.body.employee_id||0);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});if(!cleanText(req.body.kpi_name,''))return res.status(400).json({error:'KPI name is required'});const ts=now();const r=await db.get('INSERT INTO performance_reviews(employee_id,period,kpi_name,target,score,status,reviewer_id,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id',employeeId,cleanText(req.body.period,new Date().toISOString().slice(0,7)),cleanText(req.body.kpi_name,''),cleanText(req.body.target),req.body.score===''||req.body.score==null?null:num(req.body.score),cleanText(req.body.status,'draft'),req.user.id,cleanText(req.body.notes),ts,ts);await audit(req.user.id,'create','performance',r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}
 });
-app.patch('/api/performance/:id', requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+app.patch('/api/performance/:id', requireAuth, allowAccess('performance', 'edit', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{const id=Number(req.params.id),old=await db.get('SELECT * FROM performance_reviews WHERE id=?',id);if(!old)return res.status(404).json({error:'Review not found'});if(!(await inScope(req.user,old.employee_id)))return res.status(403).json({error:'Permission denied'});const d={...old,...req.body};await db.run('UPDATE performance_reviews SET period=?,kpi_name=?,target=?,score=?,status=?,reviewer_id=?,notes=?,updated_at=? WHERE id=?',cleanText(d.period,''),cleanText(d.kpi_name,''),cleanText(d.target),d.score===''||d.score==null?null:num(d.score),cleanText(d.status,'draft'),req.user.id,cleanText(d.notes),now(),id);await audit(req.user.id,'update','performance',id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
 });
 
 function addSimpleModule({name,table,dateColumn,fields,employeeField='employee_id',readRoles=null,writeRoles=null,statusRoute=true}) {
-  app.get(`/api/${name}`, requireAuth, ...(readRoles?[allow(...readRoles)]:[]), async (req,res)=>{
-    try{let ids=await teamIds(req.user);if(['salary_records','letters'].includes(table)&&!['admin','hr','ceo'].includes(req.user.role))ids=req.user.employee_id?[Number(req.user.employee_id)]:[];let where='',args=[];if(ids!==null&&employeeField){where=`WHERE x.${employeeField} IN (${placeholders(ids)})`;args=ids;}const employeeJoin=employeeField?`JOIN employees e ON e.id=x.${employeeField}`:'',selectEmployee=employeeField?',e.name employee_name':'';const items=await db.all(`SELECT x.*${selectEmployee} FROM ${table} x ${employeeJoin} ${where} ORDER BY ${dateColumn?'x.'+dateColumn:'x.id'} DESC`,...args);res.json({items});}catch(e){sendDbError(res,e);}
+  app.get(`/api/${name}`, requireAuth, allowAccess(name, 'view', ...(readRoles || [])), async (req,res)=>{
+    try{let ids=await teamIds(req.user);if(['salary_records','letters'].includes(table)&&!['admin','hr','ceo'].includes(req.user.role)&&!(req.user.access||[]).some(item=>item.module===name&&item.data_scope==='all'))ids=req.user.employee_id?[Number(req.user.employee_id)]:[];let where='',args=[];if(ids!==null&&employeeField){where=`WHERE x.${employeeField} IN (${placeholders(ids)})`;args=ids;}const employeeJoin=employeeField?`JOIN employees e ON e.id=x.${employeeField}`:'',selectEmployee=employeeField?',e.name employee_name':'';const items=await db.all(`SELECT x.*${selectEmployee} FROM ${table} x ${employeeJoin} ${where} ORDER BY ${dateColumn?'x.'+dateColumn:'x.id'} DESC`,...args);res.json({items});}catch(e){sendDbError(res,e);}
   });
-  app.post(`/api/${name}`, requireAuth, ...(writeRoles?[allow(...writeRoles)]:[]), async (req,res)=>{
+  app.post(`/api/${name}`, requireAuth, allowAccess(name, 'create', ...(writeRoles || [])), async (req,res)=>{
     try{if(employeeField){const eid=Number(req.body[employeeField]||req.user.employee_id||0);if(!eid||!(await inScope(req.user,eid)))return res.status(403).json({error:'Permission denied'});if(!writeRoles&&!['admin','hr'].includes(req.user.role)&&eid!==Number(req.user.employee_id))return res.status(403).json({error:'You can only create records for yourself'});req.body[employeeField]=eid;}const cols=fields.map(f=>f[0]),vals=fields.map(([key,type,def])=>{let v=req.body[key];if(v===undefined||v===null||v==='')v=typeof def==='function'?def():def;return type==='number'?num(v,0):cleanText(v,def??null);});if(!cols.includes('created_at')){cols.push('created_at');vals.push(now());}if(['requisitions','conveyance','funds'].includes(table)&&!cols.includes('updated_at')){cols.push('updated_at');vals.push(now());}const q=`INSERT INTO ${table}(${cols.join(',')}) VALUES(${cols.map(()=>'?').join(',')}) RETURNING id`;const r=await db.get(q,...vals);await audit(req.user.id,'create',name,r.id,req.body);res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}
   });
-  app.patch(`/api/${name}/:id`, requireAuth, ...(writeRoles?[allow(...writeRoles)]:[]), async (req,res)=>{
+  app.patch(`/api/${name}/:id`, requireAuth, allowAccess(name, 'edit', ...(writeRoles || [])), async (req,res)=>{
     try{const id=Number(req.params.id),item=await db.get(`SELECT * FROM ${table} WHERE id=?`,id);if(!item)return res.status(404).json({error:'Record not found'});if(employeeField&&!(await inScope(req.user,item[employeeField])))return res.status(403).json({error:'Permission denied'});if(!writeRoles&&employeeField&&!['admin','hr'].includes(req.user.role)&&Number(item[employeeField])!==Number(req.user.employee_id))return res.status(403).json({error:'You can only edit your own record'});const cols=[],vals=[];for(const [key,type] of fields){if(req.body[key]===undefined)continue;if(key==='status'&&!['admin','hr','ceo','manager'].includes(req.user.role))continue;if(key===employeeField&&employeeField){const eid=Number(req.body[key]);if(!(await inScope(req.user,eid)))return res.status(403).json({error:'Permission denied'});if(!writeRoles&&!['admin','hr'].includes(req.user.role)&&eid!==Number(req.user.employee_id))return res.status(403).json({error:'You cannot reassign this record'});}cols.push(`${key}=?`);vals.push(type==='number'?num(req.body[key]):cleanText(req.body[key]));}if(!cols.length)return res.status(400).json({error:'No editable fields provided'});if(['requisitions','conveyance','funds'].includes(table)){cols.push('updated_at=?');vals.push(now());}vals.push(id);await db.run(`UPDATE ${table} SET ${cols.join(',')} WHERE id=?`,...vals);await audit(req.user.id,'update',name,id,req.body);res.json({ok:true});}catch(e){sendDbError(res,e);}
   });
-  if(statusRoute) app.patch(`/api/${name}/:id/status`, requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+  if(statusRoute) app.patch(`/api/${name}/:id/status`, requireAuth, allowAccess(name, 'approve', 'admin','hr','ceo','manager'), async (req,res)=>{
     try{const id=Number(req.params.id),status=cleanText(req.body.status,''),item=await db.get(`SELECT * FROM ${table} WHERE id=?`,id);if(!item)return res.status(404).json({error:'Record not found'});if(employeeField&&!(await inScope(req.user,item[employeeField])))return res.status(403).json({error:'Permission denied'});if(employeeField&&!['admin','hr'].includes(req.user.role)&&Number(item[employeeField])===Number(req.user.employee_id))return res.status(403).json({error:'You cannot approve your own record'});const cols=['status=?'],vals=[status];if(['requisitions','conveyance'].includes(table)){cols.push('approved_by=?');vals.push(req.user.id);}if(['requisitions','conveyance','funds'].includes(table)){cols.push('updated_at=?');vals.push(now());}vals.push(id);await db.run(`UPDATE ${table} SET ${cols.join(',')} WHERE id=?`,...vals);await audit(req.user.id,'status',name,id,{status});res.json({ok:true});}catch(e){sendDbError(res,e);}
   });
 }
@@ -311,7 +343,7 @@ addSimpleModule({name:'salary',table:'salary_records',dateColumn:'effective_date
 addSimpleModule({name:'funds',table:'funds',dateColumn:'received_date',writeRoles:null,fields:[['employee_id','number'],['received_date','text',()=>new Date().toISOString().slice(0,10)],['amount','number',0],['purpose','text',''],['settled_amount','number',0],['status','text','open'],['invoice_ref','text'],['note','text']]});
 addSimpleModule({name:'letters',table:'letters',dateColumn:'issue_date',writeRoles:['admin','hr'],statusRoute:false,fields:[['employee_id','number'],['type','text','Appointment'],['issue_date','text',()=>new Date().toISOString().slice(0,10)],['subject','text',''],['body','text',''],['status','text','issued']]});
 
-app.get('/api/reports', requireAuth, allow('admin','hr','ceo','manager'), async (req,res)=>{
+app.get('/api/reports', requireAuth, allowAccess('reports', 'view', 'admin','hr','ceo','manager'), async (req,res)=>{
   try{
     const type=cleanText(req.query.type,'month'),period=cleanText(req.query.period,type==='year'?localDate().slice(0,4):localDate().slice(0,7));let from,to,label;
     if(type==='year'){const y=/^\d{4}$/.test(period)?period:localDate().slice(0,4);from=`${y}-01-01`;to=`${y}-12-31`;label=y;}
@@ -330,6 +362,8 @@ app.get('/api/reports', requireAuth, allow('admin','hr','ceo','manager'), async 
 });
 
 app.get('/api/admin/users', requireAuth, allow('admin','hr'), async (req,res)=>{try{const items=await db.all('SELECT u.id,u.employee_id,u.email,u.role,u.status,u.created_at,e.name employee_name FROM users u LEFT JOIN employees e ON e.id=u.employee_id ORDER BY u.id');res.json({items});}catch(e){sendDbError(res,e);}});
+app.get('/api/admin/access/:userId', requireAuth, allow('admin'), async (req,res)=>{try{const userId=Number(req.params.userId);res.json({items:await db.all('SELECT module,can_view,can_create,can_edit,can_delete,can_approve,data_scope FROM user_access WHERE user_id=? ORDER BY module',userId)});}catch(e){sendDbError(res,e);}});
+app.put('/api/admin/access/:userId', requireAuth, allow('admin'), async (req,res)=>{try{const userId=Number(req.params.userId),permissions=Array.isArray(req.body.permissions)?req.body.permissions:[];const validActions=['can_view','can_create','can_edit','can_delete','can_approve'],validScopes=['self','team','all'];await db.run('DELETE FROM user_access WHERE user_id=?',userId);for(const item of permissions){if(!ACCESS_MODULES.includes(item.module))continue;const values=validActions.map(key=>Boolean(item[key]));const scope=validScopes.includes(item.data_scope)?item.data_scope:'self';await db.run('INSERT INTO user_access(user_id,module,can_view,can_create,can_edit,can_delete,can_approve,data_scope,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',userId,item.module,...values,scope,now());}await audit(req.user.id,'update','user_access',userId,{modules:permissions.length});res.json({ok:true});}catch(e){sendDbError(res,e);}});
 app.post('/api/admin/users', requireAuth, allow('admin'), async (req,res)=>{try{const email=cleanText(req.body.email,'').toLowerCase(),password=String(req.body.password||''),role=cleanText(req.body.role,'employee');if(!email||password.length<10)return res.status(400).json({error:'Valid email and password of at least 10 characters are required'});if(!ROLES.includes(role))return res.status(400).json({error:'Invalid role'});const r=await db.get('INSERT INTO users(employee_id,email,password_hash,role,status,created_at) VALUES(?,?,?,?,?,?) RETURNING id',req.body.employee_id?Number(req.body.employee_id):null,email,hashPassword(password),role,'active',now());await audit(req.user.id,'create','user',r.id,{email,role});res.status(201).json({id:Number(r.id)});}catch(e){sendDbError(res,e);}});
 app.patch('/api/admin/users/:id', requireAuth, allow('admin'), async (req,res)=>{try{const id=Number(req.params.id),old=await db.get('SELECT * FROM users WHERE id=?',id);if(!old)return res.status(404).json({error:'User not found'});const role=cleanText(req.body.role,old.role),status=cleanText(req.body.status,old.status),email=cleanText(req.body.email,old.email).toLowerCase();if(!ROLES.includes(role))return res.status(400).json({error:'Invalid role'});const cols=['email=?','role=?','status=?'],vals=[email,role,status];if(req.body.password){if(String(req.body.password).length<10)return res.status(400).json({error:'Password must be at least 10 characters'});cols.push('password_hash=?');vals.push(hashPassword(String(req.body.password)));}vals.push(id);await db.run(`UPDATE users SET ${cols.join(',')} WHERE id=?`,...vals);await audit(req.user.id,'update','user',id,{email,role,status});res.json({ok:true});}catch(e){sendDbError(res,e);}});
 app.get('/api/admin/settings', requireAuth, allow('admin','hr'), async (req,res)=>{try{res.json({items:await db.all('SELECT * FROM settings ORDER BY key')});}catch(e){sendDbError(res,e);}});

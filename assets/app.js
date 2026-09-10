@@ -1,6 +1,21 @@
 (() => {
   const HRMS = window.HRMS = {
     user: null,
+    can(module, action='view') {
+      if (!this.user) return false;
+      if (this.user.role === 'admin') return true;
+      const explicit = (this.user.access || []).find(item => item.module === module);
+      if (explicit) return Boolean(explicit[`can_${action}`]);
+      const defaults = {
+        chairman: {view:['dashboard','reports'],approve:['leave','requisitions','conveyance','funds']},
+        ceo: {view:['dashboard','tasks','leave','performance','reports','requisitions','conveyance','funds'],create:['tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
+        official: {view:['dashboard']},
+        manager: {view:['dashboard','attendance','tasks','leave','performance','requisitions','conveyance','funds','reports'],create:['tasks','leave','performance','requisitions','conveyance','funds'],edit:['attendance','tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
+        employee: {view:['dashboard','attendance','tasks','leave','requisitions','conveyance','funds'],create:['attendance','tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','requisitions','conveyance','funds']},
+        hr: {view:['dashboard','employees','organization','attendance','tasks','leave','performance','reports','requisitions','conveyance','salary','funds','letters'],create:['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'],edit:['employees','organization','attendance','tasks','leave','performance','requisitions','conveyance','salary','funds','letters'],approve:['leave','requisitions','conveyance','funds']}
+      };
+      return (defaults[this.user.role]?.[action] || []).includes(module);
+    },
     async api(url, options = {}) {
       const init = { credentials: 'same-origin', ...options };
       init.headers = { ...(options.body && typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...(options.headers || {}) };
@@ -44,8 +59,8 @@
       document.querySelectorAll('.sidebar a').forEach(a=>{
         if(location.pathname.endsWith(a.getAttribute('href')) || (location.pathname==='/' && a.getAttribute('href')==='index.html')) a.classList.add('active'); else a.classList.remove('active');
         const href=a.getAttribute('href');
-        if(href==='admin.html' && !['admin','hr'].includes(HRMS.user.role)) a.hidden=true;
-        if(href==='reports.html' && HRMS.user.role==='employee') a.hidden=true;
+        const module=href.replace('.html','').replace('index','dashboard').replace('admin','administration');
+        if(!HRMS.can(module, 'view')) a.hidden=true;
       });
       const main=document.querySelector('main');
       if(main && !document.querySelector('.account-chip')){

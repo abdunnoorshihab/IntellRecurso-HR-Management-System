@@ -120,4 +120,14 @@ Use the resulting hash when inserting the first row into `users` through a trust
 - Use HTTPS only in production.
 - Change temporary admin passwords immediately.
 - Before broad rollout, add login rate limiting and ideally MFA/SSO for privileged accounts.
+
+## Individual access control
+
+Run `supabase/migrations/002_individual_access.sql` after the base schema. Administrators can then open **Administration > Access** for any user and assign module-level view, create, edit, delete and approve permissions with `self`, `team` or `all` data scope. The supported account roles include `chairman` and `official`; custom access rows override that role's default permissions.
+
+After applying the migration, deploy the updated function:
+
+```bash
+supabase functions deploy hrms-api --no-verify-jwt
+```
 # IntellRecurso-HR-Management-System
