@@ -383,5 +383,5 @@ app.get('/api/admin/settings', requireAuth, allow('admin','hr'), async (req,res)
 app.put('/api/admin/settings/:key', requireAuth, allow('admin','hr'), async (req,res)=>{try{const key=cleanText(req.params.key,''),value=cleanText(req.body.value,'');await db.run('INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=EXCLUDED.updated_at',key,value,now());await audit(req.user.id,'update','setting',key,{value});res.json({ok:true});}catch(e){sendDbError(res,e);}});
 app.get('/api/admin/audit', requireAuth, allow('admin','hr'), async (req,res)=>{try{const items=await db.all('SELECT a.*,u.email user_email FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 200');res.json({items});}catch(e){sendDbError(res,e);}});
 
-app.use('/api', (req,res)=>res.status(404).json({error:'API endpoint not found'}));
+app.use('/api', (req,res)=>res.status(404).json({error:'API endpoint not found',path:req.path,method:req.method}));
 export default app;

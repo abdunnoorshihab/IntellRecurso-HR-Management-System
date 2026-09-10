@@ -44,6 +44,9 @@ Deno.serve(async (request: Request) => {
       break;
     }
   }
+  // A few proxy configurations can preserve the /api prefix in the
+  // destination as well as the source. Normalize that duplicate safely.
+  while (pathname.startsWith('/api/api/')) pathname = pathname.slice(4);
   // Vercel rewrites /api/* to /functions/v1/hrms-api/api/*, preserving the API path.
   const fakeReq: any = {
     method: request.method,
