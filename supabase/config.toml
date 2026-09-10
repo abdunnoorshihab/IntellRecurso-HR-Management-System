@@ -1,0 +1,5 @@
+project_id = "intellrecurso-hrms"
+
+[functions.hrms-api]
+# The HRMS uses its own secure HttpOnly session-cookie authentication.
+verify_jwt = false

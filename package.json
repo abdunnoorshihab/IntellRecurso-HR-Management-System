@@ -1,0 +1,13 @@
+{
+  "name": "intellrecurso-hrms",
+  "version": "4.0.0",
+  "private": true,
+  "description": "IntellRecurso HR Management System - static frontend on Vercel + Supabase PostgreSQL/Edge Function backend",
+  "scripts": {
+    "check": "node --check assets/app.js && node --check assets/module.js && node --check supabase/functions/hrms-api/app.js && node --check supabase/functions/hrms-api/db.js && node --check supabase/functions/hrms-api/mini-express.js",
+    "hash-password": "node scripts/generate-password-hash.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
