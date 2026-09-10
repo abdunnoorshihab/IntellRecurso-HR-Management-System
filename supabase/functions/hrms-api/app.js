@@ -309,6 +309,18 @@ app.post('/api/attendance/mark', requireAuth, async (req,res)=>{
     res.json({ok:true,date,time,status});
   } catch(e) { sendDbError(res,e); }
 });
+app.post('/api/attendance/checkout', requireAuth, async (req,res)=>{
+  try {
+    if (String(req.user.role || '').toLowerCase() === 'ceo') return res.status(403).json({error:'CEO accounts do not mark attendance'});
+    const employeeId=Number(req.user.employee_id||0);if(!employeeId)return res.status(400).json({error:'Your account is not linked to an employee record'});
+    const date=localDate(),time=localTime(),existing=await db.get('SELECT id FROM attendance WHERE employee_id=? AND date=?',employeeId,date);
+    if(existing) await db.run('UPDATE attendance SET check_out=?,updated_at=? WHERE id=?',time,now(),existing.id);
+    else await db.run('INSERT INTO attendance(employee_id,date,check_out,status,note,correction_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',employeeId,date,time,'present','Checked out without a check-in record','none',now(),now());
+    await audit(req.user.id,'checkout','attendance',existing?.id||null,{employee_id:employeeId,date,time});
+    await notifyRoles(['hr'],'Attendance checkout',`${req.user.name || req.user.email} checked out on ${date} at ${time}.`,'attendance',existing?.id||null);
+    res.json({ok:true,date,time});
+  } catch(e) { sendDbError(res,e); }
+});
 app.post('/api/attendance', requireAuth, allowAccess('attendance', 'create', 'admin','hr','manager'), async (req,res)=>{
   try{
     const employeeId=getEmployeeId(req);if(!employeeId||!(await inScope(req.user,employeeId)))return res.status(403).json({error:'Permission denied'});
