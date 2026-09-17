@@ -9,7 +9,7 @@
       const explicit = (this.user.access || []).find(item => item.module === module);
       if (explicit) return Boolean(explicit[`can_${action}`]);
       const defaults = {
-        chairman: {view:['dashboard','attendance','tasks','events','reports'],create:['attendance','tasks'],edit:['attendance','tasks'],approve:['leave','requisitions','conveyance','funds']},
+        chairman: {view:['dashboard','employees','organization','attendance','tasks','events','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'],create:['employees','organization','attendance','tasks','events','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'],edit:['employees','organization','attendance','tasks','events','leave','performance','reports','requisitions','conveyance','salary','funds','letters','administration'],approve:['leave','requisitions','conveyance','funds']},
         ceo: {view:['dashboard','tasks','events','leave','performance','reports','requisitions','conveyance','funds'],create:['tasks','leave','requisitions','conveyance','funds'],edit:['tasks','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
         official: {view:['dashboard','attendance'],create:['attendance'],edit:['attendance']},
         manager: {view:['dashboard','attendance','tasks','events','leave','performance','requisitions','conveyance','funds','reports'],create:['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'],edit:['attendance','tasks','events','leave','performance','requisitions','conveyance','funds'],approve:['leave','requisitions','conveyance','funds']},
