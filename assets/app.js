@@ -57,7 +57,7 @@
     },
     async init() {
       document.querySelectorAll('.brand').forEach(brand => {
-        brand.innerHTML = '<img class="brand-logo" src="assets/logo.svg" alt="IntellRecurso"><span class="brand-name">Intell<span>Recurso</span></span><small>HR Management System</small>';
+        brand.innerHTML = '<img class="brand-logo" src="assets/logo.png" alt="IntellRecurso"><span class="brand-name">Intell<span>Recurso</span></span><small>HR Management System</small>';
       });
       document.querySelectorAll('.sidebar').forEach(sidebar => {
         if (sidebar.querySelector('.menu-toggle')) return;
