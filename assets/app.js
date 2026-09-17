@@ -59,6 +59,27 @@
       document.querySelectorAll('.brand').forEach(brand => {
         brand.innerHTML = '<img class="brand-logo" src="assets/logo.svg" alt="IntellRecurso"><span class="brand-name">Intell<span>Recurso</span></span><small>HR Management System</small>';
       });
+      document.querySelectorAll('.sidebar').forEach(sidebar => {
+        if (sidebar.querySelector('.menu-toggle')) return;
+        const toggle = document.createElement('button');
+        toggle.className = 'menu-toggle';
+        toggle.type = 'button';
+        toggle.setAttribute('aria-label', 'Open navigation menu');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.innerHTML = '<span></span><span></span><span></span>';
+        sidebar.parentNode.insertBefore(toggle, sidebar);
+        const closeMenu = () => {
+          document.body.classList.remove('nav-open');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.setAttribute('aria-label', 'Open navigation menu');
+        };
+        toggle.onclick = () => {
+          const isOpen = document.body.classList.toggle('nav-open');
+          toggle.setAttribute('aria-expanded', String(isOpen));
+          toggle.setAttribute('aria-label', isOpen ? 'Close navigation menu' : 'Open navigation menu');
+        };
+        sidebar.querySelectorAll('a').forEach(link => link.addEventListener('click', closeMenu));
+      });
       if (location.pathname.endsWith('login.html')) return initLogin();
       try { HRMS.user = (await HRMS.api('/api/auth/me')).user; } catch { return; }
       document.querySelectorAll('.sidebar a').forEach(a=>{
