@@ -302,8 +302,11 @@
     if (HRMS.can('funds','create')) quick.push('<a href="funds.html">Apply for Fund</a>');
     const actionPanel = document.querySelector('.actions');
     if (actionPanel) actionPanel.innerHTML = quick.join('') || '<span class="muted">No actions available.</span>';
-    const notices = notifications.items.slice(0,5).map(item => `<div class="notification ${item.is_read ? '' : 'unread'}" data-notification="${item.id}"><b>${HRMS.esc(item.title)}</b><span>${HRMS.esc(item.message)}</span></div>`).join('') || '<div class="muted">No notifications.</div>';
-    document.getElementById('dashboardControl').innerHTML = `<div><span>Attendance exceptions</span><b>${d.attendanceExceptions}</b></div><div><span>Leave requests pending</span><b>${d.pendingLeave}</b></div><div><span>Requisitions awaiting review</span><b>${d.pendingReq}</b></div><div><span>Fund settlements open</span><b>${d.openFunds}</b></div><div><span>Tasks in progress</span><b>${taskStats.inProgress || 0}</b></div><div class="quick-actions">${quick.join('')}</div><h3>Notifications (${notifications.unread} unread)</h3><div class="notifications">${notices}</div>`;
+    const notices = notifications.items.slice(0,5).map(item => {
+      const date = item.created_at ? new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric'}).format(new Date(item.created_at)) : '';
+      return `<div class="notification ${item.is_read ? '' : 'unread'}" data-notification="${item.id}" role="button" tabindex="0"><span class="notification-icon" aria-hidden="true">!</span><div class="notification-content"><b>${HRMS.esc(item.title)}</b><span>${HRMS.esc(item.message)}</span>${date ? `<small>${date}</small>` : ''}</div>${item.is_read ? '' : '<span class="notification-dot" aria-label="Unread"></span>'}</div>`;
+    }).join('') || '<div class="notification-empty">You’re all caught up.</div>';
+    document.getElementById('dashboardControl').innerHTML = `<div><span>Attendance exceptions</span><b>${d.attendanceExceptions}</b></div><div><span>Leave requests pending</span><b>${d.pendingLeave}</b></div><div><span>Requisitions awaiting review</span><b>${d.pendingReq}</b></div><div><span>Fund settlements open</span><b>${d.openFunds}</b></div><div><span>Tasks in progress</span><b>${taskStats.inProgress || 0}</b></div><div class="quick-actions">${quick.join('')}</div><div class="notification-heading"><div><h3>Notifications</h3><small>${notifications.unread ? `${notifications.unread} unread update${notifications.unread === 1 ? '' : 's'}` : 'All updates read'}</small></div><span class="notification-count">${notifications.items.length}</span></div><div class="notifications">${notices}</div>`;
     document.getElementById('dashboardTasks')?.remove();
     const taskSection = document.createElement('section');
     taskSection.id = 'dashboardTasks';
@@ -326,7 +329,11 @@
     lower.innerHTML = `<div class="panel" style="background:linear-gradient(135deg,#eff6ff,#ecfeff);border-top:3px solid #06b6d4"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Attendance Trend</h2><small>Present records over the last 7 days</small></div><a href="attendance.html" style="background:#2563eb;color:white;padding:8px 12px;border-radius:7px;text-decoration:none;font-size:12px">Attendance</a></div><div style="display:flex;gap:10px;margin:26px 8px 24px;align-items:flex-end;border-bottom:1px solid #cbd5e1">${chart}</div></div><div class="panel" style="background:linear-gradient(135deg,#fff7ed,#fefce8);border-top:3px solid #f97316"><div style="display:flex;justify-content:space-between;align-items:center"><div><h2>Upcoming Events</h2><small>Company calendar and team activities</small></div>${eventAction}</div><div style="display:grid;gap:9px;margin-top:14px">${events}</div></div>`;
     document.querySelector('main').appendChild(lower);
     document.getElementById('addEventBtn')?.addEventListener('click', () => HRMS.modal('Add Upcoming Event', [{name:'title',label:'Event Title',required:true},{name:'event_date',label:'Date',type:'date',required:true},{name:'event_time',label:'Time',type:'time'},{name:'location',label:'Location'},{name:'description',label:'Description',type:'textarea'}], {}, async obj => { await HRMS.api('/api/events',{method:'POST',body:JSON.stringify(obj)}); lower.remove(); await dashboard(); }));
-    document.querySelectorAll('[data-notification]').forEach(item => item.onclick = async () => { await HRMS.api(`/api/notifications/${item.dataset.notification}/read`, {method:'PATCH', body:'{}'}); item.classList.remove('unread'); });
+    document.querySelectorAll('[data-notification]').forEach(item => {
+      const markRead = async () => { if (!item.classList.contains('unread')) return; await HRMS.api(`/api/notifications/${item.dataset.notification}/read`, {method:'PATCH', body:'{}'}); item.classList.remove('unread'); item.querySelector('.notification-dot')?.remove(); };
+      item.onclick = markRead;
+      item.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); markRead(); } };
+    });
   }
 
   async function organization() {
