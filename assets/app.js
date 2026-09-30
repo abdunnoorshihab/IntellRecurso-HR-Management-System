@@ -91,8 +91,12 @@
       const main=document.querySelector('main');
       if(main && !document.querySelector('.account-chip')){
         const chip=document.createElement('div'); chip.className='account-chip';
-        chip.innerHTML=`<span><b>${esc(HRMS.user.name || HRMS.user.email)}</b><small>${esc(HRMS.user.role.toUpperCase())}</small></span><button class="secondary" id="changePwdBtn">Password</button><button class="secondary" id="logoutBtn">Logout</button>`;
-        main.prepend(chip);
+        chip.innerHTML=`<span><b>${esc(HRMS.user.name || HRMS.user.email)}</b><small>${esc(HRMS.user.role.toUpperCase())}</small></span><button class="secondary" id="changePwdBtn">Change Password</button><button class="secondary" id="logoutBtn">Logout</button>`;
+        const sidebar=document.querySelector('.sidebar');
+        const mobileMenu=window.matchMedia('(max-width: 768px)');
+        const placeAccountChip=()=>mobileMenu.matches&&sidebar?sidebar.append(chip):main.prepend(chip);
+        placeAccountChip();
+        mobileMenu.addEventListener('change',placeAccountChip);
         document.getElementById('changePwdBtn').onclick=()=>HRMS.modal('Change Password',[{name:'current_password',label:'Current Password',type:'password',required:true},{name:'new_password',label:'New Password (10+ characters)',type:'password',required:true}],{},async obj=>{await HRMS.api('/api/auth/change-password',{method:'POST',body:JSON.stringify(obj)});HRMS.toast('Password changed');});
         document.getElementById('logoutBtn').onclick=async()=>{await HRMS.api('/api/auth/logout',{method:'POST'});location.href='login.html';};
       }
