@@ -287,7 +287,7 @@
     const displayName = HRMS.user.name || HRMS.user.email || 'colleague';
     const dayLabel = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date());
     document.getElementById('pageTitle').textContent = `Good morning, ${displayName}`;
-    document.getElementById('pageSubtitle').textContent = `${dayLabel} · ${HRMS.user.role.toUpperCase()} office brief`;
+    document.getElementById('pageSubtitle').textContent = `${dayLabel} · ${HRMS.user.role.toUpperCase()}`;
     const taskStats = d.taskStats || {};
     const taskProgress = taskStats.total ? `${Math.round(taskStats.completed / taskStats.total * 100)}%` : '—';
     document.getElementById('summaryCards').innerHTML = cards([
